@@ -189,7 +189,7 @@ WEATHER_CITIES=Minsk,Tbilisi,Batumi
 GEMINI_API_KEY=your-gemini-key
 OPENAI_API_KEY=your-openai-key
 
-POSTGRES_URL=postgresql://user:password@localhost:5432/faminy_bot
+POSTGRES_URL=postgresql://user:password@localhost:5432/family_bot
 ```
 
 ---

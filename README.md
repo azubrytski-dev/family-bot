@@ -74,7 +74,7 @@ Key variables:
 You can use Docker, e.g.:
 
 ```bash
-docker run --name faminy-bot-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=faminy_bot -p 5432:5432 -d postgres:16
+docker run --name faminy-bot-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=family_bot -p 5432:5432 -d postgres:16
 ```
 
 4. **Run the bot**

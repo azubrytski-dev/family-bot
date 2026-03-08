@@ -40,6 +40,7 @@ class PgChatMembersRepository(ChatMembersRepository):
                 """,
                 (chat_id, user_id, username, display_name),
             )
+        await self._conn.commit()
 
     async def get_member_ids(self, chat_id: int) -> list[int]:
         async with self._conn.cursor(row_factory=dict_row) as cur:
@@ -72,6 +73,7 @@ class PgDailyActivityRepository(DailyActivityRepository):
                 """,
                 (chat_id, user_id, message_ts.date(), message_ts),
             )
+        await self._conn.commit()
 
     async def get_activity_for_date(self, chat_id: int, day: date) -> dict[int, int]:
         async with self._conn.cursor(row_factory=dict_row) as cur:
@@ -106,6 +108,7 @@ class PgActivityRepository(ActivityRepository):
         display_name: str | None,
     ) -> None:
         async with self._conn.cursor() as cur:
+            # Update chat_members_activity
             await cur.execute(
                 """
                 INSERT INTO chat_members_activity (
@@ -128,6 +131,18 @@ class PgActivityRepository(ActivityRepository):
                 """,
                 (chat_id, user_id, username, display_name, message_ts, message_ts.date()),
             )
+            # Also update daily_activity
+            await cur.execute(
+                """
+                INSERT INTO daily_activity (chat_id, user_id, activity_date, message_count, last_message_ts)
+                VALUES (%s, %s, %s, 1, %s)
+                ON CONFLICT (chat_id, user_id, activity_date)
+                DO UPDATE SET message_count = daily_activity.message_count + 1,
+                              last_message_ts = EXCLUDED.last_message_ts
+                """,
+                (chat_id, user_id, message_ts.date(), message_ts),
+            )
+        await self._conn.commit()
 
     async def get_today_activity(self, chat_id: int, day: date) -> dict[int, int]:
         async with self._conn.cursor(row_factory=dict_row) as cur:
@@ -193,6 +208,7 @@ class PgWeatherRepository(WeatherRepository):
                     snapshot.raw_payload,
                 ),
             )
+        await self._conn.commit()
 
     async def get_snapshot(self, city: str, day: date) -> WeatherSnapshot | None:
         async with self._conn.cursor(row_factory=dict_row) as cur:
@@ -270,6 +286,7 @@ class PgCurrencyRepository(CurrencyRepository):
                 """,
                 (rate.base_currency, rate.target_currency, rate.rate_date, rate.rate),
             )
+        await self._conn.commit()
 
     async def get_rate(
         self,
@@ -373,6 +390,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 """,
                 (chat_id, title, chat_type),
             )
+        await self._conn.commit()
 
     async def list_active_chats(self) -> list[ChatRecord]:
         async with self._conn.cursor(row_factory=dict_row) as cur:
@@ -407,6 +425,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 """,
                 (chat_id,),
             )
+        await self._conn.commit()
 
     async def update_last_greeting(self, chat_id: int) -> None:
         async with self._conn.cursor() as cur:
@@ -418,6 +437,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 """,
                 (chat_id,),
             )
+        await self._conn.commit()
 
     async def upsert_items(self, items: list[NewsItem]) -> None:
         if not items:
@@ -440,6 +460,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                         item.raw_payload,
                     ),
                 )
+        await self._conn.commit()
 
     async def list_items_for_day(
         self,
@@ -476,4 +497,3 @@ class PgChatRegistryRepository(ChatRegistryRepository):
             )
             for row in rows
         ]
-
