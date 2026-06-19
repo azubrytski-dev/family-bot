@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import psycopg
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -57,7 +56,6 @@ async def send_startup_greetings(bot: Bot, chat_registry_service: ChatRegistrySe
 async def close_runtime_resources(
     bot: Bot,
     openai_client: OpenAIClient | None,
-    conn: psycopg.AsyncConnection | None,
     scheduler: AsyncIOScheduler | None,
 ) -> None:
     if scheduler is not None:
@@ -65,8 +63,6 @@ async def close_runtime_resources(
     await bot.session.close()
     if openai_client is not None:
         await openai_client.aclose()
-    if conn is not None:
-        await conn.close()
 
 
 async def main() -> None:
@@ -92,18 +88,15 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     openai_client: OpenAIClient | None = None
-    conn: psycopg.AsyncConnection | None = None
     scheduler: AsyncIOScheduler | None = None
     try:
         bot_me = await bot.get_me()
         dp = Dispatcher(storage=MemoryStorage())
 
-        conn = await psycopg.AsyncConnection.connect(config.postgres_url)
-
         # Repositories & services
-        activity_repo = PgActivityRepository(conn)
-        chat_registry_repo = PgChatRegistryRepository(conn)
-        scheduler_job_repo = PgSchedulerJobRepository(conn)
+        activity_repo = PgActivityRepository(config.postgres_url)
+        chat_registry_repo = PgChatRegistryRepository(config.postgres_url)
+        scheduler_job_repo = PgSchedulerJobRepository(config.postgres_url)
 
         activity_service = ActivityService(repo=activity_repo)
         chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
@@ -138,7 +131,6 @@ async def main() -> None:
         await close_runtime_resources(
             bot=bot,
             openai_client=openai_client,
-            conn=conn,
             scheduler=scheduler,
         )
 

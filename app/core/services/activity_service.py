@@ -18,6 +18,8 @@ class ActivityRepository(Protocol):
 
     async def get_chat_members(self, chat_id: int) -> Iterable[int]: ...
 
+    async def get_chat_member_labels(self, chat_id: int) -> dict[int, str]: ...
+
 
 class ActivityService:
     def __init__(self, repo: ActivityRepository) -> None:
@@ -46,3 +48,7 @@ class ActivityService:
         inactive = sorted(members - active_users)
         return list(inactive)
 
+    async def get_inactive_user_labels(self, chat_id: int, day: date) -> list[str]:
+        inactive_user_ids = await self.get_inactive_users(chat_id, day)
+        labels = await self._repo.get_chat_member_labels(chat_id)
+        return [labels.get(user_id, f"id:{user_id}") for user_id in inactive_user_ids]

@@ -83,17 +83,14 @@ async def test_send_startup_greetings_migrates_group_chat_and_retries() -> None:
 async def test_close_runtime_resources_closes_everything():
     bot = DummyBot()
     openai_client = DummyClosable()
-    conn = DummyClosable()
     scheduler = DummyScheduler()
 
     await close_runtime_resources(
         bot=bot,  # type: ignore[arg-type]
         openai_client=openai_client,  # type: ignore[arg-type]
-        conn=conn,  # type: ignore[arg-type]
         scheduler=scheduler,  # type: ignore[arg-type]
     )
 
     assert bot.session.closed is True
     assert openai_client.closed is True
-    assert conn.closed is True
     assert scheduler.stopped is True

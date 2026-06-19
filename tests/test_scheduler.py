@@ -51,6 +51,9 @@ class InMemoryActivityRepo:
     async def get_chat_members(self, chat_id):  # type: ignore[no-untyped-def]
         return []
 
+    async def get_chat_member_labels(self, chat_id):  # type: ignore[no-untyped-def]
+        return {}
+
 
 def _make_config(monkeypatch) -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
@@ -131,3 +134,27 @@ async def test_execute_scheduler_job_sends_morning_message(monkeypatch):
     await execute_scheduler_job("good_morning", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
 
     assert bot.sent_messages == [(321, "Доброе утро, зубры! ☕️ Желаю всем классного дня!")]
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+
+    class InactiveLabelRepo(InMemoryActivityRepo):
+        async def get_today_activity(self, chat_id, day):  # type: ignore[no-untyped-def]
+            return {100: 1}
+
+        async def get_chat_members(self, chat_id):  # type: ignore[no-untyped-def]
+            return [100, 101]
+
+        async def get_chat_member_labels(self, chat_id):  # type: ignore[no-untyped-def]
+            return {100: "Active User", 101: "Inactive User"}
+
+    activity_service = ActivityService(InactiveLabelRepo())  # type: ignore[arg-type]
+
+    await execute_scheduler_job("good_night_and_activity", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
+
+    assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
+    assert "Inactive User" in bot.sent_messages[1][1]
+    assert "id:101" not in bot.sent_messages[1][1]

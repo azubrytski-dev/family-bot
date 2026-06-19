@@ -35,8 +35,7 @@ async def execute_scheduler_job(
     if not config.enable_activity_tracking:
         return
     today = date.today()
-    inactive_ids = await activity_service.get_inactive_users(chat_id, today)
-    inactive_labels = [f"id:{user_id}" for user_id in inactive_ids]
+    inactive_labels = await activity_service.get_inactive_user_labels(chat_id, today)
     summary = format_activity_summary(today, inactive_labels)
     await bot.send_message(chat_id, summary)
 
