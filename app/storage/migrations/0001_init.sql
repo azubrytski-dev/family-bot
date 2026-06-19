@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS chats (
     chat_type        TEXT        NOT NULL,
     is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
     is_approved      BOOLEAN     NOT NULL DEFAULT FALSE,
+    allow_test       BOOLEAN     NOT NULL DEFAULT FALSE,
     removed_at       TIMESTAMPTZ,
     last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

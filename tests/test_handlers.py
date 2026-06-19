@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.bot.handlers import _build_ai_context, _is_active_bot_status, _is_ai_trigger
+from app.bot.handlers import (
+    _build_ai_context,
+    _is_active_bot_status,
+    _is_ai_trigger,
+    _test_command_job_type,
+)
 
 
 def test_is_ai_trigger_matches_bot_username():
@@ -43,3 +48,9 @@ def test_is_active_bot_status_matches_member_like_statuses():
     assert _is_active_bot_status("administrator") is True
     assert _is_active_bot_status("left") is False
     assert _is_active_bot_status("kicked") is False
+
+
+def test_test_command_job_type_matches_supported_commands():
+    assert _test_command_job_type("/test_morning") == "good_morning"
+    assert _test_command_job_type("/test_night@family_bot") == "good_night_and_activity"
+    assert _test_command_job_type("/start") is None

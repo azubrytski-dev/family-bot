@@ -8,6 +8,7 @@ from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command, CommandStart
 from aiogram.types import ChatMemberUpdated, Message
 
+from app.bot.scheduler import execute_scheduler_job
 from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
@@ -56,8 +57,18 @@ def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
     }
 
 
+def _test_command_job_type(text: str) -> str | None:
+    command = text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
+    if command == "/test_morning":
+        return "good_morning"
+    if command == "/test_night":
+        return "good_night_and_activity"
+    return None
+
+
 def setup_handlers(
     dp: Dispatcher,
+    bot,
     config: AppConfig,
     activity_service: ActivityService,
     ai_service: AiService,
@@ -136,6 +147,21 @@ def setup_handlers(
 
         if not await chat_registry.is_chat_approved(message.chat.id):
             logger.info("Chat %s is pending approval; skipping bot interaction.", message.chat.id)
+            return
+
+        job_type = _test_command_job_type(_message_text(message))
+        if job_type is not None:
+            if not await chat_registry.is_chat_test_allowed(message.chat.id):
+                logger.info("Chat %s is approved but test commands are disabled.", message.chat.id)
+                await message.answer("Тестовые команды для этого чата отключены.")
+                return
+            await execute_scheduler_job(
+                job_type=job_type,
+                bot=bot,
+                chat_id=message.chat.id,
+                config=config,
+                activity_service=activity_service,
+            )
             return
 
         if config.enable_activity_tracking and message.from_user is not None:

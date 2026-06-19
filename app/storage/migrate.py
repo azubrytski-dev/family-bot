@@ -4,19 +4,19 @@ from pathlib import Path
 
 import psycopg
 
-from app.core.config import get_config
+from app.core.config import AppConfig, get_config
 
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
-async def run_migrations() -> None:
+async def run_migrations(config: AppConfig | None = None) -> None:
     """
     Apply all pending SQL migrations to the database referenced by POSTGRES_URL.
 
     NOTE: The target database must already exist; this function will not create it.
     """
-    config = get_config()
+    config = config or get_config()
     dsn = config.postgres_url
 
     async with await psycopg.AsyncConnection.connect(dsn) as conn:

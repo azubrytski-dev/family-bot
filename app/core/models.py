@@ -11,6 +11,7 @@ class ChatRecord:
     chat_type: str
     is_active: bool
     is_approved: bool
+    allow_test: bool
     removed_at: datetime | None
 
 

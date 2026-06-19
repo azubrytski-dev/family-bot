@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.bot.scheduler import setup_scheduler
+from app.bot.scheduler import execute_scheduler_job, setup_scheduler
 from app.core.config import AppConfig
 from app.core.models import SchedulerJob
 from app.core.services.activity_service import ActivityService
@@ -84,8 +84,10 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
     await setup_scheduler(scheduler, bot, cfg, activity_service, repo)  # type: ignore[arg-type]
 
     assert [job["name"] for job in scheduler.jobs] == ["good_morning", "night"]
-    assert scheduler.jobs[0]["args"] == [321]
-    assert scheduler.jobs[1]["args"] == [999]
+    assert scheduler.jobs[0]["args"][0] == "good_morning"
+    assert scheduler.jobs[0]["args"][2] == 321
+    assert scheduler.jobs[1]["args"][0] == "good_night_and_activity"
+    assert scheduler.jobs[1]["args"][2] == 999
 
 
 @pytest.mark.asyncio
@@ -111,3 +113,14 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
     await setup_scheduler(scheduler, bot, cfg, activity_service, repo)  # type: ignore[arg-type]
 
     assert scheduler.jobs == []
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_sends_morning_message(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+
+    await execute_scheduler_job("good_morning", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
+
+    assert bot.sent_messages == [(321, "Доброе утро, семья! ☕️ Желаю всем классного дня!")]
