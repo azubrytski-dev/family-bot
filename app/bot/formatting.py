@@ -5,7 +5,7 @@ from typing import Iterable
 
 
 def format_good_morning() -> str:
-    return "Доброе утро, семья! ☕️ Желаю всем классного дня!"
+    return "Доброе утро, зубры! ☕️ Желаю всем классного дня!"
 
 
 def format_startup_greeting() -> str:
@@ -13,7 +13,7 @@ def format_startup_greeting() -> str:
 
 
 def format_good_night() -> str:
-    return "Спокойной ночи, семья 😴 Пусть завтра будет ещё лучше, чем сегодня."
+    return "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня."
 
 
 def format_activity_summary(

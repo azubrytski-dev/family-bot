@@ -12,7 +12,7 @@ class DummyClient:
     async def generate_text(self, prompt: str) -> str:
         self.last_prompt = prompt
         # Echo back a short fixed answer to simulate AI behavior.
-        return "Привет, семья! Я тут и готов помочь."
+        return "Привет, зубры! Я тут и готов помочь."
 
 
 @pytest.mark.asyncio

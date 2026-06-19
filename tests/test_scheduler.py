@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from typing import TypedDict
 
 import pytest
 
@@ -18,9 +18,16 @@ class DummyBot:
         self.sent_messages.append((chat_id, text))
 
 
+class ScheduledJobRecord(TypedDict):
+    func: object
+    trigger: object
+    args: list[object] | None
+    name: str | None
+
+
 class RecordingScheduler:
     def __init__(self) -> None:
-        self.jobs: list[dict[str, object]] = []
+        self.jobs: list[ScheduledJobRecord] = []
 
     def add_job(self, func, trigger, args=None, name=None):  # type: ignore[no-untyped-def]
         self.jobs.append({"func": func, "trigger": trigger, "args": args, "name": name})
@@ -123,4 +130,4 @@ async def test_execute_scheduler_job_sends_morning_message(monkeypatch):
 
     await execute_scheduler_job("good_morning", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
 
-    assert bot.sent_messages == [(321, "Доброе утро, семья! ☕️ Желаю всем классного дня!")]
+    assert bot.sent_messages == [(321, "Доброе утро, зубры! ☕️ Желаю всем классного дня!")]
