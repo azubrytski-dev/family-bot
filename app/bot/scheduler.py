@@ -54,10 +54,9 @@ async def setup_scheduler(
             logger.warning("Skipping unsupported scheduler job type %s for %s.", job.job_type, job.job_key)
             continue
 
-        effective_chat_id = job.chat_id if job.chat_id is not None else config.target_chat_id
-        if effective_chat_id is None:
+        if job.chat_id is None:
             logger.warning(
-                "Skipping scheduler job %s because no chat_id is configured in DB or TARGET_CHAT_ID.",
+                "Skipping scheduler job %s because no chat_id is configured in DB.",
                 job.job_key,
             )
             continue
@@ -72,7 +71,7 @@ async def setup_scheduler(
             scheduler.add_job(
                 send_good_morning,
                 trigger,
-                args=[effective_chat_id],
+                args=[job.chat_id],
                 name=job.job_key,
             )
             continue
@@ -80,6 +79,6 @@ async def setup_scheduler(
         scheduler.add_job(
             send_good_night_and_activity,
             trigger,
-            args=[effective_chat_id],
+            args=[job.chat_id],
             name=job.job_key,
         )

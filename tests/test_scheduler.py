@@ -49,10 +49,6 @@ def _make_config(monkeypatch, target_chat_id: str | None = "321") -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    if target_chat_id is None:
-        monkeypatch.delenv("TARGET_CHAT_ID", raising=False)
-    else:
-        monkeypatch.setenv("TARGET_CHAT_ID", target_chat_id)
     return AppConfig(_env_file=None)  # type: ignore[call-arg]
 
 
@@ -70,7 +66,7 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
                 cron_hour=8,
                 cron_minute=0,
                 timezone_name="Europe/Minsk",
-                chat_id=None,
+                chat_id=321,
                 enabled=True,
             ),
             SchedulerJob(
@@ -94,7 +90,7 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
-    cfg = _make_config(monkeypatch, target_chat_id=None)
+    cfg = _make_config(monkeypatch)
     scheduler = RecordingScheduler()
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
