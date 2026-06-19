@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: ./bin/archive <change-id>"
+  exit 1
+fi
+
+change_id="$1"
+source_dir="tasks/changes/$change_id"
+
+if [[ ! -d "$source_dir" ]]; then
+  echo "Error: unknown change: $change_id"
+  exit 1
+fi
+
+today="$(date +%F)"
+archive_root="tasks/archive/$today"
+destination="$archive_root/$change_id"
+status_file="$source_dir/status.md"
+summary_file="$source_dir/archive.md"
+
+mkdir -p "$archive_root"
+
+if [[ -e "$destination" ]]; then
+  echo "Error: archive destination already exists: $destination"
+  exit 1
+fi
+
+cat > "$summary_file" <<EOF
+# Archive Summary: $change_id
+
+- Archived on: \`$today\`
+- Final status: \`archived\`
+
+## Outcome
+
+Summarize what shipped, what was deferred, and any follow-up work.
+EOF
+
+cat > "$status_file" <<EOF
+# Status
+
+- Current status: \`archived\`
+- Last updated: \`$today\`
+- Notes: moved to archive
+EOF
+
+mv "$source_dir" "$destination"
+
+echo "Archived change to: $destination"

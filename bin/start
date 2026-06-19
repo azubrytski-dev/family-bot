@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: ./bin/start <change-id>"
+  exit 1
+fi
+
+change_id="$1"
+change_dir="tasks/changes/$change_id"
+proposal_file="$change_dir/proposal.md"
+status_file="$change_dir/status.md"
+implementation_file="$change_dir/implementation.md"
+review_file="$change_dir/review.md"
+
+if [[ ! -d "$change_dir" ]]; then
+  echo "Error: unknown change: $change_id"
+  echo "Create it first with: ./bin/propose <change-name>"
+  exit 1
+fi
+
+if [[ ! -f "$proposal_file" ]]; then
+  echo "Error: missing proposal file: $proposal_file"
+  exit 1
+fi
+
+today="$(date +%F)"
+
+cat > "$status_file" <<EOF
+# Status
+
+- Current status: \`in_progress\`
+- Last updated: \`$today\`
+- Notes: implementation started
+EOF
+
+if [[ ! -f "$implementation_file" ]]; then
+  cat > "$implementation_file" <<EOF
+# Implementation: $change_id
+
+## Working Notes
+
+- Target files:
+- Key assumptions:
+- Risks to watch:
+
+## Test Plan
+
+- Unit tests to add/update:
+- Commands to run:
+EOF
+fi
+
+if [[ ! -f "$review_file" ]]; then
+  cat > "$review_file" <<EOF
+# Review Gate: $change_id
+
+## Code Review
+
+- Findings:
+
+## Performance Review
+
+- Findings:
+
+## Calamity Review
+
+- Findings:
+
+## Apply Recommendation
+
+- Ready to apply:
+- Follow-ups:
+EOF
+fi
+
+echo "Marked change as in progress: $change_id"
+echo "Proposal: $proposal_file"
+echo "Implementation notes: $implementation_file"
+echo "Review gate: $review_file"

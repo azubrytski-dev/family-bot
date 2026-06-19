@@ -1,14 +1,35 @@
 from app.core.config import AppConfig
 
 
-def test_weather_cities_parsing(monkeypatch):
+def test_minimal_config_loads(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("TARGET_CHAT_ID", "123")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
-    monkeypatch.setenv("WEATHER_CITIES", "Minsk, Tbilisi, Batumi")
 
-    cfg = AppConfig()  # type: ignore[call-arg]
+    cfg = AppConfig(_env_file=None)  # type: ignore[call-arg]
 
-    assert cfg.weather_cities == ["Minsk", "Tbilisi", "Batumi"]
     assert cfg.target_chat_id == 123
+    assert cfg.enable_scheduler is True
+    assert cfg.enable_activity_tracking is True
 
+
+def test_scheduler_and_activity_flags_are_respected(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
+    monkeypatch.setenv("ENABLE_SCHEDULER", "false")
+    monkeypatch.setenv("ENABLE_ACTIVITY_TRACKING", "false")
+
+    cfg = AppConfig(_env_file=None)  # type: ignore[call-arg]
+
+    assert cfg.enable_scheduler is False
+    assert cfg.enable_activity_tracking is False
+
+
+def test_target_chat_id_is_optional_for_db_scheduler_rows(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
+
+    cfg = AppConfig(_env_file=None)  # type: ignore[call-arg]
+
+    assert cfg.target_chat_id is None
+    assert cfg.enable_scheduler is True

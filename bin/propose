@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: ./bin/propose <change-name>"
+  exit 1
+fi
+
+raw_name="$*"
+slug="$(printf '%s' "$raw_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+
+if [[ -z "$slug" ]]; then
+  echo "Error: could not derive a valid change id from: $raw_name"
+  exit 1
+fi
+
+change_dir="tasks/changes/$slug"
+proposal_file="$change_dir/proposal.md"
+plan_file="$change_dir/plan.md"
+status_file="$change_dir/status.md"
+
+if [[ -e "$change_dir" ]]; then
+  echo "Error: change already exists at $change_dir"
+  exit 1
+fi
+
+mkdir -p "$change_dir"
+
+today="$(date +%F)"
+
+cat > "$proposal_file" <<EOF
+# Proposal: $raw_name
+
+- Change ID: \`$slug\`
+- Status: \`proposed\`
+- Created: \`$today\`
+
+## Objective
+
+Describe the user or system outcome.
+
+## Scope
+
+- In scope:
+- Out of scope:
+
+## Design Review
+
+- Affected layers:
+- Data model / migration impact:
+- Scheduler / outbound-message impact:
+- Failure modes:
+
+## Verification Plan
+
+- Unit tests:
+- Integration checks:
+- Review gates:
+EOF
+
+cat > "$plan_file" <<EOF
+# Plan: $raw_name
+
+## Steps
+
+1. Clarify the smallest safe implementation scope.
+2. Review architecture boundaries.
+3. Implement the change.
+4. Add or update deterministic tests.
+5. Run review gates before apply.
+EOF
+
+cat > "$status_file" <<EOF
+# Status
+
+- Current status: \`proposed\`
+- Last updated: \`$today\`
+- Notes:
+EOF
+
+echo "Created change scaffold:"
+echo "  $proposal_file"
+echo "  $plan_file"
+echo "  $status_file"
+echo
+echo "Next: ./bin/start $slug"

@@ -1,15 +1,12 @@
 ## Faminy Bot — Family Assistant Telegram Bot
 
-A Telegram bot for a single family group chat that tracks daily activity, sends scheduled messages, provides weather/news/currency updates, and uses AI to answer mentions. All bot messages are in **Russian**.
+A Telegram bot for a single family group chat with a deliberately narrow active runtime: AI chat replies plus scheduled messages loaded from PostgreSQL. All bot messages are in **Russian**.
 
-### Features (MVP)
+### Active Features
 
-- **Single chat only**: ignores all chats except `TARGET_CHAT_ID`.
+- **Single chat only**: ignores all chats except `TARGET_CHAT_ID`, unless a scheduler row provides its own `chat_id`.
 - **Daily activity tracking** per user with PostgreSQL storage.
-- **Scheduled messages** in Minsk timezone (08:00 “доброе утро”, 23:00 “спокойной ночи”).
-- **Weather snapshots** for configured cities with historical comparisons.
-- **News aggregation** with AI-generated Russian summaries.
-- **Currency rates** (EUR/USD/RUB → GEL, BYN) with history and deltas.
+- **Database-backed scheduled messages** in Minsk timezone by default, seeded with 08:00 “доброе утро” and 23:00 “спокойной ночи” jobs.
 - **AI replies on mention** using Gemini with OpenAI fallback.
 
 ### Tech Stack
@@ -63,8 +60,7 @@ cp .env.example .env
 Key variables:
 
 - `BOT_TOKEN` — Telegram bot token.
-- `TARGET_CHAT_ID` — numeric ID of the family chat. If omitted, the bot can participate in any chat, but scheduled messages are disabled.
-- `WEATHER_CITIES` — comma-separated list of cities.
+- `TARGET_CHAT_ID` — numeric ID of the family chat. If omitted, DB scheduler rows must provide `chat_id` explicitly.
 - `GEMINI_API_KEY`, `OPENAI_API_KEY` — AI providers.
 - `POSTGRES_URL` — connection string to PostgreSQL.
 - `TZ_NAME` — timezone, default `Europe/Minsk`.
@@ -85,6 +81,15 @@ python -m app.main
 
 The bot will start polling Telegram and scheduling background jobs.
 
+### Scheduler Jobs
+
+Scheduler definitions live in the `scheduler_jobs` table. The fresh-start schema in `0001_init.sql` seeds two default jobs:
+
+- `good_morning`
+- `good_night_and_activity`
+
+For now, job management is expected to happen directly in PostgreSQL.
+
 > By default the bot will automatically apply any pending SQL migrations on startup (`AUTO_RUN_MIGRATIONS=true`).  
 > If you prefer to manage them manually, set `AUTO_RUN_MIGRATIONS=false` and run:
 >
@@ -100,5 +105,8 @@ Run tests with:
 pytest
 ```
 
-The initial test suite focuses on configuration loading and service skeletons; you can extend it with integration tests as the bot matures.
+The test suite covers the active AI, scheduler, config, and storage paths; you can extend it with more integration coverage as the bot evolves.
 
+### Migration Notes
+
+The migration directory is intentionally simplified for fresh database bootstrap. `0001_init.sql` contains the complete active schema used by the bot today.

@@ -1,53 +1,61 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
 import pytest
 import psycopg
 from psycopg.rows import dict_row
 
 from app.core.config import get_config
+from app.storage.migrate import run_migrations
 from app.storage.pg_repo import (
     PgActivityRepository,
     PgChatRegistryRepository,
-    PgCurrencyRepository,
-    PgWeatherRepository,
+    PgSchedulerJobRepository,
 )
 
 
 @pytest.mark.asyncio
 async def test_pg_chat_registry_repo():
+    await run_migrations()
     config = get_config()
     conn = await psycopg.AsyncConnection.connect(config.postgres_url)
-    
+
     repo = PgChatRegistryRepository(conn)
-    
-    # Test upsert chat
+
     test_chat_id = 999999  # Use a unique ID to avoid conflicts
     await repo.upsert_chat(chat_id=test_chat_id, title="Test Chat", chat_type="group")
-    
-    # Test list active chats
-    chats = list(await repo.list_active_chats())
-    assert any(c.chat_id == test_chat_id and c.title == "Test Chat" for c in chats)
-    
-    # Clean up
+
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT chat_id, title, chat_type, is_active FROM chats WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+        row = await cur.fetchone()
+    assert row is not None
+    assert row["title"] == "Test Chat"
+    assert row["chat_type"] == "group"
+    assert row["is_active"] is True
+
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
-    
+
     await conn.close()
 
 
 @pytest.mark.asyncio
 async def test_pg_activity_repo():
+    await run_migrations()
     config = get_config()
     conn = await psycopg.AsyncConnection.connect(config.postgres_url)
-    
+
     repo = PgActivityRepository(conn)
-    
-    # Test increment message count
-    from datetime import datetime, timezone
-    test_chat_id = 999999
-    test_user_id = 12345
+
+    test_chat_id = 900000 + (uuid4().int % 10000)
+    test_user_id = 100000 + (uuid4().int % 10000)
     now = datetime.now(timezone.utc)
-    
+
     await repo.increment_message_count(
         chat_id=test_chat_id,
         user_id=test_user_id,
@@ -55,14 +63,11 @@ async def test_pg_activity_repo():
         username="testuser",
         display_name="Test User",
     )
-    
-    # Test get today activity
+
     today = now.date()
     activity = await repo.get_today_activity(test_chat_id, today)
-    assert test_user_id in activity
-    assert activity[test_user_id] == 1  # As per implementation
-    
-    # Also check daily_activity
+    assert activity == {test_user_id: 1}
+
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
             "SELECT message_count FROM daily_activity WHERE chat_id = %s AND user_id = %s AND activity_date = %s",
@@ -71,51 +76,33 @@ async def test_pg_activity_repo():
         row = await cur.fetchone()
     assert row is not None
     assert row["message_count"] == 1
-    
-    # Clean up
+
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chat_members_activity WHERE chat_id = %s AND user_id = %s", (test_chat_id, test_user_id))
         await cur.execute("DELETE FROM daily_activity WHERE chat_id = %s AND user_id = %s AND activity_date = %s", (test_chat_id, test_user_id, today))
-    
+
     await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pg_currency_repo():
+async def test_pg_scheduler_job_repo():
+    await run_migrations()
     config = get_config()
     conn = await psycopg.AsyncConnection.connect(config.postgres_url)
-    
-    repo = PgCurrencyRepository(conn)
-    
-    from app.core.models import CurrencyRate
-    from datetime import date
-    
-    rate = CurrencyRate(
-        base_currency="USD",
-        target_currency="EUR",
-        rate_date=date.today(),
-        rate=0.85,
-    )
-    
-    await repo.store_rate(rate)
-    
-    # Test get_rate
-    retrieved = await repo.get_rate("USD", "EUR", date.today())
-    assert retrieved is not None
-    from decimal import Decimal
-    assert retrieved.rate == Decimal('0.85')
-    
-    # Clean up
-    async with conn.cursor() as cur:
-        await cur.execute("DELETE FROM currency_rates WHERE base_currency = %s AND target_currency = %s AND rate_date = %s", ("USD", "EUR", date.today()))
-    
+
+    repo = PgSchedulerJobRepository(conn)
+    jobs = await repo.list_enabled_jobs()
+
+    assert any(job.job_key == "good_morning" for job in jobs)
+    assert any(job.job_type == "good_night_and_activity" for job in jobs)
+
     await conn.close()
 
 
 @pytest.mark.asyncio
 async def test_connection_string():
+    await run_migrations()
     config = get_config()
-    # Test that postgres_url is set and connection works
     try:
         conn = await psycopg.AsyncConnection.connect(config.postgres_url)
         await conn.close()
