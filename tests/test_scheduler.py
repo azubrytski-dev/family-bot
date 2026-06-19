@@ -48,6 +48,7 @@ class InMemoryActivityRepo:
 def _make_config(monkeypatch, target_chat_id: str | None = "321") -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     if target_chat_id is None:
         monkeypatch.delenv("TARGET_CHAT_ID", raising=False)
     else:

@@ -17,7 +17,6 @@ from app.core.config import get_config
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
-from app.integrations.ai.gemini_client import GeminiClient
 from app.integrations.ai.openai_client import OpenAIClient
 from app.storage.migrate import run_migrations
 from app.storage.pg_repo import (
@@ -73,21 +72,12 @@ async def main() -> None:
     activity_service = ActivityService(repo=activity_repo)
     chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
 
-    # AI clients
-    primary_ai: GeminiClient | None = None
-    fallback_ai: OpenAIClient | None = None
-    if config.gemini_api_key:
-        primary_ai = GeminiClient(config.gemini_api_key)
-    if config.openai_api_key:
-        fallback_ai = OpenAIClient(config.openai_api_key)
-
-    if primary_ai is None and fallback_ai is None:
-        raise RuntimeError("At least one AI provider (Gemini or OpenAI) must be configured.")
-
-    ai_service = AiService(
-        primary=primary_ai or fallback_ai,
-        fallback=fallback_ai if primary_ai else None,
+    openai_client = OpenAIClient(
+        api_key=config.openai_api_key,
+        model=config.openai_model,
     )
+
+    ai_service = AiService(primary=openai_client)
 
     setup_handlers(
         dp,
@@ -113,10 +103,7 @@ async def main() -> None:
         if scheduler is not None:
             scheduler.shutdown(wait=False)
         await bot.session.close()
-        if primary_ai:
-            await primary_ai.aclose()
-        if fallback_ai:
-            await fallback_ai.aclose()
+        await openai_client.aclose()
         await conn.close()
 
 

@@ -71,13 +71,10 @@ Main requirements
 	•	difference vs 7 days ago
 
 6. AI integration
-	•	Primary AI provider: Gemini API
-	•	Fallback provider: OpenAI / ChatGPT
+	•	Provider: OpenAI / ChatGPT
 	•	Requirements:
 	•	abstract AI provider behind interface
-	•	if Gemini fails, automatically fallback to ChatGPT
 	•	use AI for:
-	•	news summaries
 	•	smart replies when bot is mentioned
 	•	optional friendly daily commentary
 
@@ -126,7 +123,6 @@ app/
     news/
     rates/
     ai/
-      gemini_client.py
       openai_client.py
   storage/
     repo.py
@@ -196,8 +192,7 @@ Implement only MVP first:
 	•	“everyone wrote” message
 	6.	News collection from DB-configured sources
 	7.	AI summarization:
-	•	primary Gemini
-	•	fallback ChatGPT
+	•	OpenAI
 	8.	Currency rates:
 	•	EUR/USD/RUB to GEL and BYN
 	•	compare with yesterday

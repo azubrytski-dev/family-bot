@@ -4,8 +4,9 @@ import httpx
 
 
 class OpenAIClient:
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, model: str) -> None:
         self._api_key = api_key
+        self._model = model
         self._client = httpx.AsyncClient(timeout=20.0)
 
     async def generate_text(self, prompt: str) -> str:
@@ -15,7 +16,7 @@ class OpenAIClient:
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "gpt-3.5-turbo",
+            "model": self._model,
             "messages": [
                 {
                     "role": "user",
@@ -36,4 +37,3 @@ class OpenAIClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
-

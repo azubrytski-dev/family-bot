@@ -7,7 +7,7 @@ A Telegram bot for a single family group chat with a deliberately narrow active 
 - **Single chat only**: ignores all chats except `TARGET_CHAT_ID`, unless a scheduler row provides its own `chat_id`.
 - **Daily activity tracking** per user with PostgreSQL storage.
 - **Database-backed scheduled messages** in Minsk timezone by default, seeded with 08:00 “доброе утро” and 23:00 “спокойной ночи” jobs.
-- **AI replies on mention** using Gemini with OpenAI fallback.
+- **AI replies on mention** using OpenAI.
 
 ### Tech Stack
 
@@ -15,7 +15,7 @@ A Telegram bot for a single family group chat with a deliberately narrow active 
 - `aiogram` (Telegram bot)
 - PostgreSQL
 - Custom SQL migrations
-- Gemini + OpenAI HTTP clients
+- OpenAI HTTP client
 
 ### Setup
 
@@ -61,7 +61,8 @@ Key variables:
 
 - `BOT_TOKEN` — Telegram bot token.
 - `TARGET_CHAT_ID` — numeric ID of the family chat. If omitted, DB scheduler rows must provide `chat_id` explicitly.
-- `GEMINI_API_KEY`, `OPENAI_API_KEY` — AI providers.
+- `OPENAI_API_KEY` — OpenAI API key.
+- `OPENAI_MODEL` — OpenAI model name, default `gpt-4.1-nano`.
 - `POSTGRES_URL` — connection string to PostgreSQL.
 - `TZ_NAME` — timezone, default `Europe/Minsk`.
 
