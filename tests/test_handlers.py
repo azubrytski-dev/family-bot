@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.bot.handlers import _build_ai_context, _is_ai_trigger
+from app.bot.handlers import _build_ai_context, _is_active_bot_status, _is_ai_trigger
 
 
 def test_is_ai_trigger_matches_bot_username():
@@ -36,3 +36,10 @@ def test_build_ai_context_includes_author_and_message_text():
 
     assert "Andrei" in context
     assert "Как дела?" in context
+
+
+def test_is_active_bot_status_matches_member_like_statuses():
+    assert _is_active_bot_status("member") is True
+    assert _is_active_bot_status("administrator") is True
+    assert _is_active_bot_status("left") is False
+    assert _is_active_bot_status("kicked") is False

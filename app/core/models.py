@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -10,6 +11,7 @@ class ChatRecord:
     chat_type: str
     is_active: bool
     is_approved: bool
+    removed_at: datetime | None
 
 
 @dataclass

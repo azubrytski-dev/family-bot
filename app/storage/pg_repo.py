@@ -117,6 +117,8 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                     title = EXCLUDED.title,
                     chat_type = EXCLUDED.chat_type,
                     is_active = TRUE,
+                    is_approved = CASE WHEN chats.is_active THEN chats.is_approved ELSE FALSE END,
+                    removed_at = NULL,
                     last_seen_at = NOW()
                 """,
                 (chat_id, title, chat_type),
@@ -127,7 +129,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
         async with self._conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 """
-                SELECT chat_id, title, chat_type, is_active, is_approved
+                SELECT chat_id, title, chat_type, is_active, is_approved, removed_at
                 FROM chats
                 WHERE is_active = TRUE
                   AND is_approved = TRUE
@@ -142,6 +144,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 chat_type=row["chat_type"],
                 is_active=row["is_active"],
                 is_approved=row["is_approved"],
+                removed_at=row["removed_at"],
             )
             for row in rows
         ]
@@ -160,6 +163,20 @@ class PgChatRegistryRepository(ChatRegistryRepository):
         if row is None:
             return False
         return bool(row["is_approved"])
+
+    async def mark_chat_removed(self, chat_id: int) -> None:
+        async with self._conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE chats
+                SET is_active = FALSE,
+                    is_approved = FALSE,
+                    removed_at = NOW()
+                WHERE chat_id = %s
+                """,
+                (chat_id,),
+            )
+        await self._conn.commit()
 
 
 class PgSchedulerJobRepository(SchedulerJobRepository):

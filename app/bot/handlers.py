@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 import logging
 
 from aiogram import Dispatcher
+from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import ChatMemberUpdated, Message
 
 from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
@@ -45,6 +46,16 @@ def _build_ai_context(message: Message) -> str:
     return f"Автор: {author}\nСообщение: {_message_text(message)}"
 
 
+def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
+    status_value = status.value if isinstance(status, ChatMemberStatus) else str(status)
+    return status_value in {
+        "member",
+        "administrator",
+        "creator",
+        "restricted",
+    }
+
+
 def setup_handlers(
     dp: Dispatcher,
     config: AppConfig,
@@ -65,6 +76,32 @@ def setup_handlers(
             title=title,
             chat_type=chat_type_str,
         )
+
+    async def _record_membership_chat(update: ChatMemberUpdated) -> None:
+        title = update.chat.title or getattr(update.chat, "full_name", None)
+        chat_type = getattr(update.chat.type, "value", str(update.chat.type))
+        await chat_registry.record_chat_seen(
+            chat_id=update.chat.id,
+            title=title,
+            chat_type=chat_type,
+        )
+
+    @dp.my_chat_member()
+    async def on_my_chat_member(update: ChatMemberUpdated) -> None:
+        old_status = update.old_chat_member.status
+        new_status = update.new_chat_member.status
+        was_active = _is_active_bot_status(old_status)
+        is_active = _is_active_bot_status(new_status)
+
+        if not was_active and is_active:
+            logger.info("Bot was added back to chat %s; resetting approval flow.", update.chat.id)
+            await _record_membership_chat(update)
+            return
+
+        if was_active and not is_active:
+            logger.info("Bot was removed from chat %s; marking chat inactive.", update.chat.id)
+            await chat_registry.mark_chat_removed(update.chat.id)
+            return
 
     @dp.message(CommandStart())
     async def start(message: Message) -> None:
