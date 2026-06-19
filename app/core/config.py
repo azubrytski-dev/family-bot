@@ -14,8 +14,8 @@ class AppConfig(BaseSettings):
     enable_scheduler: bool = Field(default=True, alias="ENABLE_SCHEDULER")
     enable_activity_tracking: bool = Field(default=True, alias="ENABLE_ACTIVITY_TRACKING")
 
-    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
-    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_api_key: str = Field(alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4.1-nano", alias="OPENAI_MODEL")
 
     postgres_url: str = Field(alias="POSTGRES_URL")
 

@@ -110,17 +110,10 @@ Bot reports:
 
 # 6. AI Integration
 
-Two AI providers:
-
-Primary
-- Gemini API
-
-Fallback
-- OpenAI ChatGPT
+OpenAI ChatGPT
 
 Uses:
 
-- news summaries
 - chat responses
 - conversational interaction
 
@@ -207,7 +200,6 @@ telegram/
 news/
 rates/
 ai/
-gemini_client.py
 openai_client.py
 
 storage/
@@ -226,8 +218,8 @@ Example `.env`
 BOT_TOKEN=
 TARGET_CHAT_ID=
 
-GEMINI_API_KEY=
 OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-nano
 
 POSTGRES_URL=
 
