@@ -14,7 +14,7 @@ class DummyBot:
 
 
 class DummyChatRegistryService:
-    async def get_active_chats(self):  # type: ignore[no-untyped-def]
+    async def get_approved_chats(self):  # type: ignore[no-untyped-def]
         return [
             type("Chat", (), {"chat_id": 101})(),
             type("Chat", (), {"chat_id": 202})(),

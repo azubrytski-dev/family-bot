@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS chats (
     title            TEXT,
     chat_type        TEXT        NOT NULL,
     is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
+    is_approved      BOOLEAN     NOT NULL DEFAULT FALSE,
     last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

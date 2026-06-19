@@ -75,6 +75,9 @@ def setup_handlers(
     async def activate(message: Message) -> None:
         logger.info(f"Activating chat {message.chat.id}")
         await _record_chat(message)
+        if not await chat_registry.is_chat_approved(message.chat.id):
+            logger.info("Chat %s is pending approval; skipping activation handling.", message.chat.id)
+            return
         if not config.enable_activity_tracking:
             return
         # Register the chat and the sender as a member
@@ -93,6 +96,10 @@ def setup_handlers(
     async def handle_message(message: Message) -> None:
         logger.info("Handling message in chat %s", message.chat.id)
         await _record_chat(message)
+
+        if not await chat_registry.is_chat_approved(message.chat.id):
+            logger.info("Chat %s is pending approval; skipping bot interaction.", message.chat.id)
+            return
 
         if config.enable_activity_tracking and message.from_user is not None:
             now = datetime.now(timezone.utc)

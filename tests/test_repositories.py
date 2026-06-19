@@ -29,7 +29,7 @@ async def test_pg_chat_registry_repo():
 
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            "SELECT chat_id, title, chat_type, is_active FROM chats WHERE chat_id = %s",
+            "SELECT chat_id, title, chat_type, is_active, is_approved FROM chats WHERE chat_id = %s",
             (test_chat_id,),
         )
         row = await cur.fetchone()
@@ -37,6 +37,7 @@ async def test_pg_chat_registry_repo():
     assert row["title"] == "Test Chat"
     assert row["chat_type"] == "group"
     assert row["is_active"] is True
+    assert row["is_approved"] is False
 
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
@@ -100,7 +101,7 @@ async def test_pg_scheduler_job_repo():
 
 
 @pytest.mark.asyncio
-async def test_pg_chat_registry_lists_active_chats():
+async def test_pg_chat_registry_lists_only_approved_chats():
     await run_migrations()
     config = get_config()
     conn = await psycopg.AsyncConnection.connect(config.postgres_url)
@@ -109,7 +110,16 @@ async def test_pg_chat_registry_lists_active_chats():
     test_chat_id = 800000 + (uuid4().int % 10000)
 
     await repo.upsert_chat(chat_id=test_chat_id, title="Greeting Chat", chat_type="group")
-    chats = await repo.list_active_chats()
+    assert await repo.is_chat_approved(test_chat_id) is False
+
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE chats SET is_approved = TRUE WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+    await conn.commit()
+
+    chats = await repo.list_approved_chats()
 
     assert any(chat.chat_id == test_chat_id and chat.title == "Greeting Chat" for chat in chats)
 
