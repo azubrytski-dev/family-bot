@@ -4,7 +4,7 @@ A Telegram bot for a single family group chat with a deliberately narrow active 
 
 ### Active Features
 
-- **Single chat only**: ignores all chats except `TARGET_CHAT_ID`, unless a scheduler row provides its own `chat_id`.
+- **Approval-based chat onboarding**: the bot records chats from incoming messages, then only interacts with approved chats from the database.
 - **Daily activity tracking** per user with PostgreSQL storage.
 - **Database-backed scheduled messages** in Minsk timezone by default, seeded with 08:00 “доброе утро” and 23:00 “спокойной ночи” jobs.
 - **AI replies on mention** using OpenAI.
@@ -60,7 +60,6 @@ cp .env.example .env
 Key variables:
 
 - `BOT_TOKEN` — Telegram bot token.
-- `TARGET_CHAT_ID` — numeric ID of the family chat. If omitted, DB scheduler rows must provide `chat_id` explicitly.
 - `OPENAI_API_KEY` — OpenAI API key.
 - `OPENAI_MODEL` — OpenAI model name, default `gpt-4.1-nano`.
 - `POSTGRES_URL` — connection string to PostgreSQL.
@@ -90,6 +89,7 @@ Scheduler definitions live in the `scheduler_jobs` table. The fresh-start schema
 - `good_night_and_activity`
 
 For now, job management is expected to happen directly in PostgreSQL.
+Each scheduled job row must provide its own `chat_id`.
 
 > By default the bot will automatically apply any pending SQL migrations on startup (`AUTO_RUN_MIGRATIONS=true`).  
 > If you prefer to manage them manually, set `AUTO_RUN_MIGRATIONS=false` and run:

@@ -8,8 +8,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AppConfig(BaseSettings):
     bot_token: str = Field(alias="BOT_TOKEN")
-    # If not provided, the bot is allowed in any chat.
-    target_chat_id: int | None = Field(default=None, alias="TARGET_CHAT_ID")
 
     enable_scheduler: bool = Field(default=True, alias="ENABLE_SCHEDULER")
     enable_activity_tracking: bool = Field(default=True, alias="ENABLE_ACTIVITY_TRACKING")
