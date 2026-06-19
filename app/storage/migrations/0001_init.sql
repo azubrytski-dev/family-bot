@@ -1,13 +1,3 @@
-CREATE TABLE IF NOT EXISTS chat_members (
-    chat_id        BIGINT      NOT NULL,
-    user_id        BIGINT      NOT NULL,
-    username       TEXT,
-    display_name   TEXT,
-    is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
-    joined_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (chat_id, user_id)
-);
-
 CREATE TABLE IF NOT EXISTS daily_activity (
     chat_id         BIGINT      NOT NULL,
     user_id         BIGINT      NOT NULL,
@@ -17,43 +7,36 @@ CREATE TABLE IF NOT EXISTS daily_activity (
     PRIMARY KEY (chat_id, user_id, activity_date)
 );
 
-CREATE TABLE IF NOT EXISTS weather_snapshots (
-    id            BIGSERIAL   PRIMARY KEY,
-    city          TEXT        NOT NULL,
-    snapshot_date DATE        NOT NULL,
-    temperature   NUMERIC(5,2),
-    condition     TEXT,
-    raw_payload   JSONB,
-    UNIQUE (city, snapshot_date)
+CREATE TABLE IF NOT EXISTS chats (
+    id               BIGSERIAL   PRIMARY KEY,
+    chat_id          BIGINT      NOT NULL UNIQUE,
+    title            TEXT,
+    chat_type        TEXT        NOT NULL,
+    is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
+    last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS currency_rates (
-    id              BIGSERIAL     PRIMARY KEY,
-    base_currency   CHAR(3)       NOT NULL,
-    target_currency CHAR(3)       NOT NULL,
-    rate_date       DATE          NOT NULL,
-    rate            NUMERIC(12,6) NOT NULL,
-    UNIQUE (base_currency, target_currency, rate_date)
+CREATE TABLE IF NOT EXISTS chat_members_activity (
+    chat_id           BIGINT      NOT NULL,
+    user_id           BIGINT      NOT NULL,
+    username          TEXT,
+    display_name      TEXT,
+    last_message_at   TIMESTAMPTZ,
+    last_message_date DATE,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (chat_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS news_sources (
-    id       SERIAL      PRIMARY KEY,
-    name     TEXT        NOT NULL,
-    country  TEXT        NOT NULL,
-    category TEXT        NOT NULL,
-    url      TEXT        NOT NULL,
-    enabled  BOOLEAN     NOT NULL DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS news_items (
-    id            BIGSERIAL   PRIMARY KEY,
-    source_id     INTEGER     NOT NULL REFERENCES news_sources(id) ON DELETE CASCADE,
-    title         TEXT        NOT NULL,
-    url           TEXT        NOT NULL,
-    published_at  TIMESTAMPTZ NOT NULL,
-    content_hash  TEXT        NOT NULL,
-    raw_payload   JSONB,
-    UNIQUE (source_id, content_hash)
+CREATE TABLE IF NOT EXISTS scheduler_jobs (
+    job_key       TEXT        PRIMARY KEY,
+    job_type      TEXT        NOT NULL,
+    cron_hour     SMALLINT    NOT NULL CHECK (cron_hour BETWEEN 0 AND 23),
+    cron_minute   SMALLINT    NOT NULL CHECK (cron_minute BETWEEN 0 AND 59),
+    timezone_name TEXT        NOT NULL DEFAULT 'Europe/Minsk',
+    chat_id       BIGINT,
+    enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -61,3 +44,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+INSERT INTO scheduler_jobs (
+    job_key,
+    job_type,
+    cron_hour,
+    cron_minute,
+    timezone_name,
+    chat_id,
+    enabled
+)
+VALUES
+    ('good_morning', 'good_morning', 8, 0, 'Europe/Minsk', NULL, TRUE),
+    ('good_night_and_activity', 'good_night_and_activity', 23, 0, 'Europe/Minsk', NULL, TRUE)
+ON CONFLICT (job_key) DO NOTHING;

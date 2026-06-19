@@ -40,8 +40,8 @@ async def test_inactive_users():
     service = ActivityService(repo)
 
     chat_id = 1
-    today = date.today()
     ts = datetime.now(timezone.utc)
+    today = ts.date()
 
     await service.record_message(chat_id, 100, ts, "user100", "User 100")
     await service.record_message(chat_id, 101, ts, "user101", "User 101")

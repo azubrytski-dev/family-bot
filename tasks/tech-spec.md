@@ -6,7 +6,7 @@ Technical Specification (Markdown)
 
 A Telegram bot designed to work with **one specific family group chat**.
 
-The bot monitors chat activity, provides daily updates (weather, news, currency), and uses AI to interact with users.
+The bot monitors chat activity, sends scheduled messages, and uses AI to interact with users.
 
 All bot communication is in **Russian**.
 
@@ -57,33 +57,7 @@ Messages must be friendly and informal.
 
 ---
 
-# 4. Weather
-
-Weather cities are defined in configuration.
-
-Example:
-
-WEATHER_CITIES = [
-“Minsk”,
-“Tbilisi”,
-“Batumi”
-]
-
-The bot posts weather summaries.
-
-### Data stored
-
-Daily weather snapshot.
-
-Used for comparisons:
-
-- today
-- yesterday
-- week ago
-
----
-
-# 5. News Aggregation
+# 4. News Aggregation
 
 News sources are stored in database.
 
@@ -111,7 +85,7 @@ The bot fetches news and uses AI to summarize.
 
 ---
 
-# 6. Currency Rates
+# 5. Currency Rates
 
 Track exchange rates:
 
@@ -134,7 +108,7 @@ Bot reports:
 
 ---
 
-# 7. AI Integration
+# 6. AI Integration
 
 Two AI providers:
 
@@ -182,16 +156,6 @@ last_message_ts
 
 ---
 
-## weather_snapshots
-
-city
-date
-temperature
-condition
-raw_payload
-
----
-
 ## currency_rates
 
 base_currency
@@ -234,14 +198,12 @@ config.py
 models.py
 services/
 activity_service.py
-weather_service.py
 news_service.py
 currency_service.py
 ai_service.py
 
 integrations/
 telegram/
-weather/
 news/
 rates/
 ai/
@@ -264,8 +226,6 @@ Example `.env`
 BOT_TOKEN=
 TARGET_CHAT_ID=
 
-WEATHER_CITIES=Minsk,Tbilisi
-
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 
@@ -282,7 +242,6 @@ Initial version must include:
 - migrations
 - morning/night messages
 - activity tracking
-- weather
 - news summary
 - currency rates
 - AI replies on mention

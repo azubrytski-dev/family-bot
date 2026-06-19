@@ -17,7 +17,7 @@ The bot should:
 	•	notify the chat if someone has not written anything today;
 	•	when everyone has written, send a positive “good morning / all present” style message;
 	•	send scheduled morning and night messages by Minsk time;
-	•	provide weather, news, and currency updates in Russian;
+	•	provide scheduled updates and AI communication in Russian;
 	•	track day-by-day metrics and historical values in PostgreSQL;
 	•	use database migrations for schema changes;
 	•	use AI integration for summaries / bot replies.
@@ -45,17 +45,7 @@ Main requirements
 	•	Use correct timezone handling.
 	•	Messages must be in Russian.
 
-4. Weather
-	•	Weather cities are defined in config.
-	•	Example: Minsk, Tbilisi, Batumi, etc.
-	•	Bot should post weather summary for configured cities.
-	•	Weather should be tracked historically by day:
-	•	today
-	•	yesterday
-	•	one week ago
-	•	Store weather snapshots in PostgreSQL.
-
-5. News
+4. News
 	•	Bot should gather news from configured sources.
 	•	Sources must be stored in database.
 	•	Must support migrations for adding/changing/removing sources.
@@ -65,7 +55,7 @@ Main requirements
 	•	World news
 	•	Bot should use AI to summarize collected news in Russian.
 
-6. Currency exchange rates
+5. Currency exchange rates
 	•	Track rates for:
 	•	EUR -> GEL
 	•	USD -> GEL
@@ -80,7 +70,7 @@ Main requirements
 	•	difference vs yesterday
 	•	difference vs 7 days ago
 
-7. AI integration
+6. AI integration
 	•	Primary AI provider: Gemini API
 	•	Fallback provider: OpenAI / ChatGPT
 	•	Requirements:
@@ -112,7 +102,7 @@ Technical requirements
 	•	Use environment-based config
 	•	Use structured logging
 	•	Bot must be resilient to API failures and missing data
-	•	If weather/news/AI fails, bot should degrade gracefully
+	•	If AI fails, bot should degrade gracefully
 
 ⸻
 
@@ -128,13 +118,11 @@ app/
     models.py
     services/
       activity_service.py
-      weather_service.py
       news_service.py
       currency_service.py
       ai_service.py
   integrations/
     telegram/
-    weather/
     news/
     rates/
     ai/
@@ -164,13 +152,6 @@ daily_activity
 	•	activity_date
 	•	message_count
 	•	last_message_ts
-
-weather_snapshots
-	•	city
-	•	snapshot_date
-	•	temperature
-	•	condition
-	•	raw_payload_json
 
 currency_rates
 	•	base_currency
@@ -213,15 +194,14 @@ Implement only MVP first:
 	•	who wrote today
 	•	who did not
 	•	“everyone wrote” message
-	6.	Weather from config cities
-	7.	News collection from DB-configured sources
-	8.	AI summarization:
+	6.	News collection from DB-configured sources
+	7.	AI summarization:
 	•	primary Gemini
 	•	fallback ChatGPT
-	9.	Currency rates:
+	8.	Currency rates:
 	•	EUR/USD/RUB to GEL and BYN
 	•	compare with yesterday
-	10.	Mention bot in chat -> AI answer in Russian
+	9.	Mention bot in chat -> AI answer in Russian
 
 ⸻
 
