@@ -42,7 +42,6 @@ This document summarizes the initial architecture and implementation plan for th
 │   │   │   └── client.py
 │   │   └── ai/
 │   │       ├── __init__.py
-│   │       ├── gemini_client.py
 │   │       └── openai_client.py
 │   └── storage/
 │       ├── __init__.py
@@ -171,7 +170,6 @@ Key fields:
 - `bot_token: str`
 - `target_chat_id: int`
 - `weather_cities: list[str]`
-- `gemini_api_key: str | None`
 - `openai_api_key: str | None`
 - `postgres_url: str`
 - `tz_name: str` (default: `Europe/Minsk`)
@@ -186,7 +184,6 @@ TARGET_CHAT_ID=123456789
 
 WEATHER_CITIES=Minsk,Tbilisi,Batumi
 
-GEMINI_API_KEY=your-gemini-key
 OPENAI_API_KEY=your-openai-key
 
 POSTGRES_URL=postgresql://user:password@localhost:5432/family_bot
@@ -254,7 +251,7 @@ POSTGRES_URL=postgresql://user:password@localhost:5432/family_bot
 - `weather.client`: wraps chosen weather API provider.
 - `news.client`: wraps one or more RSS/HTTP news feeds.
 - `rates.client`: wraps exchange-rate API or central bank endpoints.
-- `ai.gemini_client` / `ai.openai_client`: thin HTTP clients for respective AI APIs.
+- `ai.openai_client`: thin HTTP client for the AI API.
 
 ### `app/storage/*`
 
@@ -304,4 +301,3 @@ POSTGRES_URL=postgresql://user:password@localhost:5432/family_bot
 - Add unit tests for config, services, and repository logic (with mocked DB/clients).
 - Add integration tests for migration runner against a local PostgreSQL instance.
 - Improve error handling, logging, and idempotency for scheduled jobs.
-
