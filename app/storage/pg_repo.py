@@ -5,7 +5,7 @@ from datetime import date, datetime
 import psycopg
 from psycopg.rows import dict_row
 
-from app.core.models import SchedulerJob
+from app.core.models import ChatRecord, SchedulerJob
 from app.core.services.activity_service import ActivityRepository
 from app.storage.repo import (
     ChatRegistryRepository,
@@ -122,6 +122,27 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 (chat_id, title, chat_type),
             )
         await self._conn.commit()
+
+    async def list_active_chats(self) -> list[ChatRecord]:
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT chat_id, title, chat_type, is_active
+                FROM chats
+                WHERE is_active = TRUE
+                ORDER BY last_seen_at DESC
+                """
+            )
+            rows = await cur.fetchall()
+        return [
+            ChatRecord(
+                chat_id=row["chat_id"],
+                title=row["title"],
+                chat_type=row["chat_type"],
+                is_active=row["is_active"],
+            )
+            for row in rows
+        ]
 
 
 class PgSchedulerJobRepository(SchedulerJobRepository):

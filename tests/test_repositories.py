@@ -100,6 +100,26 @@ async def test_pg_scheduler_job_repo():
 
 
 @pytest.mark.asyncio
+async def test_pg_chat_registry_lists_active_chats():
+    await run_migrations()
+    config = get_config()
+    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+
+    repo = PgChatRegistryRepository(conn)
+    test_chat_id = 800000 + (uuid4().int % 10000)
+
+    await repo.upsert_chat(chat_id=test_chat_id, title="Greeting Chat", chat_type="group")
+    chats = await repo.list_active_chats()
+
+    assert any(chat.chat_id == test_chat_id and chat.title == "Greeting Chat" for chat in chats)
+
+    async with conn.cursor() as cur:
+        await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
+
+    await conn.close()
+
+
+@pytest.mark.asyncio
 async def test_connection_string():
     await run_migrations()
     config = get_config()

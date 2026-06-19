@@ -4,6 +4,14 @@ from dataclasses import dataclass
 
 
 @dataclass
+class ChatRecord:
+    chat_id: int
+    title: str | None
+    chat_type: str
+    is_active: bool
+
+
+@dataclass
 class SchedulerJob:
     job_key: str
     job_type: str

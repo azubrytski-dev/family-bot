@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable, Protocol
 
-from app.core.models import SchedulerJob
+from app.core.models import ChatRecord, SchedulerJob
 
 
 class ChatRegistryRepository(Protocol):
@@ -12,6 +12,8 @@ class ChatRegistryRepository(Protocol):
         title: str | None,
         chat_type: str,
     ) -> None: ...
+
+    async def list_active_chats(self) -> Iterable[ChatRecord]: ...
 
 
 class SchedulerJobRepository(Protocol):
