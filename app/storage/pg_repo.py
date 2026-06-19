@@ -110,8 +110,8 @@ class PgChatRegistryRepository(ChatRegistryRepository):
         async with self._conn.cursor() as cur:
             await cur.execute(
                 """
-                INSERT INTO chats (chat_id, title, chat_type, is_active, last_seen_at)
-                VALUES (%s, %s, %s, TRUE, NOW())
+                INSERT INTO chats (chat_id, title, chat_type, is_active, is_approved, last_seen_at)
+                VALUES (%s, %s, %s, TRUE, FALSE, NOW())
                 ON CONFLICT (chat_id)
                 DO UPDATE SET
                     title = EXCLUDED.title,
@@ -123,13 +123,14 @@ class PgChatRegistryRepository(ChatRegistryRepository):
             )
         await self._conn.commit()
 
-    async def list_active_chats(self) -> list[ChatRecord]:
+    async def list_approved_chats(self) -> list[ChatRecord]:
         async with self._conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 """
-                SELECT chat_id, title, chat_type, is_active
+                SELECT chat_id, title, chat_type, is_active, is_approved
                 FROM chats
                 WHERE is_active = TRUE
+                  AND is_approved = TRUE
                 ORDER BY last_seen_at DESC
                 """
             )
@@ -140,9 +141,25 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 title=row["title"],
                 chat_type=row["chat_type"],
                 is_active=row["is_active"],
+                is_approved=row["is_approved"],
             )
             for row in rows
         ]
+
+    async def is_chat_approved(self, chat_id: int) -> bool:
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT is_approved
+                FROM chats
+                WHERE chat_id = %s
+                """,
+                (chat_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return False
+        return bool(row["is_approved"])
 
 
 class PgSchedulerJobRepository(SchedulerJobRepository):

@@ -18,5 +18,8 @@ class ChatRegistryService:
     ) -> None:
         await self._repo.upsert_chat(chat_id=chat_id, title=title, chat_type=chat_type)
 
-    async def get_active_chats(self) -> Iterable[ChatRecord]:
-        return await self._repo.list_active_chats()
+    async def get_approved_chats(self) -> Iterable[ChatRecord]:
+        return await self._repo.list_approved_chats()
+
+    async def is_chat_approved(self, chat_id: int) -> bool:
+        return await self._repo.is_chat_approved(chat_id)

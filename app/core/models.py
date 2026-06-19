@@ -9,6 +9,7 @@ class ChatRecord:
     title: str | None
     chat_type: str
     is_active: bool
+    is_approved: bool
 
 
 @dataclass

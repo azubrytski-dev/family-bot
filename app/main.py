@@ -30,7 +30,7 @@ from app.storage.pg_repo import (
 async def send_startup_greetings(bot: Bot, chat_registry_service: ChatRegistryService) -> None:
     logger = logging.getLogger("startup-greeting")
     greeting = format_startup_greeting()
-    chats = list(await chat_registry_service.get_active_chats())
+    chats = list(await chat_registry_service.get_approved_chats())
     for chat in chats:
         try:
             await bot.send_message(chat.chat_id, greeting)
