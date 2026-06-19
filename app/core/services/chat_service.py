@@ -24,5 +24,11 @@ class ChatRegistryService:
     async def is_chat_approved(self, chat_id: int) -> bool:
         return await self._repo.is_chat_approved(chat_id)
 
+    async def is_chat_test_allowed(self, chat_id: int) -> bool:
+        return await self._repo.is_chat_test_allowed(chat_id)
+
     async def mark_chat_removed(self, chat_id: int) -> None:
         await self._repo.mark_chat_removed(chat_id)
+
+    async def migrate_chat(self, old_chat_id: int, new_chat_id: int) -> None:
+        await self._repo.migrate_chat(old_chat_id, new_chat_id)

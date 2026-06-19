@@ -7,6 +7,7 @@ import psycopg
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramMigrateToChat
 from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -33,6 +34,22 @@ async def send_startup_greetings(bot: Bot, chat_registry_service: ChatRegistrySe
     for chat in chats:
         try:
             await bot.send_message(chat.chat_id, greeting)
+        except TelegramMigrateToChat as exc:
+            new_chat_id = exc.migrate_to_chat_id
+            logger.info(
+                "Chat %s was upgraded to supergroup %s during startup greeting; migrating stored chat ID.",
+                chat.chat_id,
+                new_chat_id,
+            )
+            await chat_registry_service.migrate_chat(chat.chat_id, new_chat_id)
+            try:
+                await bot.send_message(new_chat_id, greeting)
+            except Exception:
+                logger.exception(
+                    "Failed to send startup greeting to migrated chat %s (from %s).",
+                    new_chat_id,
+                    chat.chat_id,
+                )
         except Exception:
             logger.exception("Failed to send startup greeting to chat %s.", chat.chat_id)
 
@@ -100,6 +117,7 @@ async def main() -> None:
 
         setup_handlers(
             dp,
+            bot,
             config,
             activity_service,
             ai_service,

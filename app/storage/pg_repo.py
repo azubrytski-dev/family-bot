@@ -110,8 +110,8 @@ class PgChatRegistryRepository(ChatRegistryRepository):
         async with self._conn.cursor() as cur:
             await cur.execute(
                 """
-                INSERT INTO chats (chat_id, title, chat_type, is_active, is_approved, last_seen_at)
-                VALUES (%s, %s, %s, TRUE, FALSE, NOW())
+                INSERT INTO chats (chat_id, title, chat_type, is_active, is_approved, allow_test, last_seen_at)
+                VALUES (%s, %s, %s, TRUE, FALSE, FALSE, NOW())
                 ON CONFLICT (chat_id)
                 DO UPDATE SET
                     title = EXCLUDED.title,
@@ -129,7 +129,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
         async with self._conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 """
-                SELECT chat_id, title, chat_type, is_active, is_approved, removed_at
+                SELECT chat_id, title, chat_type, is_active, is_approved, allow_test, removed_at
                 FROM chats
                 WHERE is_active = TRUE
                   AND is_approved = TRUE
@@ -144,6 +144,7 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 chat_type=row["chat_type"],
                 is_active=row["is_active"],
                 is_approved=row["is_approved"],
+                allow_test=row["allow_test"],
                 removed_at=row["removed_at"],
             )
             for row in rows
@@ -164,6 +165,21 @@ class PgChatRegistryRepository(ChatRegistryRepository):
             return False
         return bool(row["is_approved"])
 
+    async def is_chat_test_allowed(self, chat_id: int) -> bool:
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT allow_test
+                FROM chats
+                WHERE chat_id = %s
+                """,
+                (chat_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return False
+        return bool(row["allow_test"])
+
     async def mark_chat_removed(self, chat_id: int) -> None:
         async with self._conn.cursor() as cur:
             await cur.execute(
@@ -176,6 +192,36 @@ class PgChatRegistryRepository(ChatRegistryRepository):
                 """,
                 (chat_id,),
             )
+        await self._conn.commit()
+
+    async def migrate_chat(self, old_chat_id: int, new_chat_id: int) -> None:
+        async with self._conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO chats (chat_id, title, chat_type, is_active, is_approved, allow_test, removed_at, last_seen_at)
+                SELECT %s,
+                       title,
+                       'supergroup',
+                       TRUE,
+                       is_approved,
+                       allow_test,
+                       NULL,
+                       NOW()
+                FROM chats
+                WHERE chat_id = %s
+                ON CONFLICT (chat_id)
+                DO UPDATE SET
+                    title = COALESCE(EXCLUDED.title, chats.title),
+                    chat_type = 'supergroup',
+                    is_active = TRUE,
+                    is_approved = chats.is_approved OR EXCLUDED.is_approved,
+                    allow_test = chats.allow_test OR EXCLUDED.allow_test,
+                    removed_at = NULL,
+                    last_seen_at = NOW()
+                """,
+                (new_chat_id, old_chat_id),
+            )
+            await cur.execute("DELETE FROM chats WHERE chat_id = %s", (old_chat_id,))
         await self._conn.commit()
 
 

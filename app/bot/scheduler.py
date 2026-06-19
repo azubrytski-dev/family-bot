@@ -17,6 +17,30 @@ from app.storage.repo import SchedulerJobRepository
 SUPPORTED_JOB_TYPES = {"good_morning", "good_night_and_activity"}
 
 
+async def execute_scheduler_job(
+    job_type: str,
+    bot: Bot,
+    chat_id: int,
+    config: AppConfig,
+    activity_service: ActivityService,
+) -> None:
+    if job_type == "good_morning":
+        await bot.send_message(chat_id, format_good_morning())
+        return
+
+    if job_type != "good_night_and_activity":
+        raise ValueError(f"Unsupported scheduler job type: {job_type}")
+
+    await bot.send_message(chat_id, format_good_night())
+    if not config.enable_activity_tracking:
+        return
+    today = date.today()
+    inactive_ids = await activity_service.get_inactive_users(chat_id, today)
+    inactive_labels = [f"id:{user_id}" for user_id in inactive_ids]
+    summary = format_activity_summary(today, inactive_labels)
+    await bot.send_message(chat_id, summary)
+
+
 async def setup_scheduler(
     scheduler: AsyncIOScheduler,
     bot: Bot,
@@ -34,20 +58,6 @@ async def setup_scheduler(
     if not jobs:
         logger.warning("No enabled scheduler jobs found in database; scheduler will stay idle.")
         return
-
-    async def send_good_morning(chat_id: int) -> None:
-        await bot.send_message(chat_id, format_good_morning())
-
-    async def send_good_night_and_activity(chat_id: int) -> None:
-        await bot.send_message(chat_id, format_good_night())
-        if not config.enable_activity_tracking:
-            return
-        today = date.today()
-        inactive_ids = await activity_service.get_inactive_users(chat_id, today)
-        # For now we just render user IDs; later we can resolve to @usernames.
-        inactive_labels = [f"id:{user_id}" for user_id in inactive_ids]
-        summary = format_activity_summary(today, inactive_labels)
-        await bot.send_message(chat_id, summary)
 
     for job in jobs:
         if job.job_type not in SUPPORTED_JOB_TYPES:
@@ -69,16 +79,16 @@ async def setup_scheduler(
 
         if job.job_type == "good_morning":
             scheduler.add_job(
-                send_good_morning,
+                execute_scheduler_job,
                 trigger,
-                args=[job.chat_id],
+                args=[job.job_type, bot, job.chat_id, config, activity_service],
                 name=job.job_key,
             )
             continue
 
         scheduler.add_job(
-            send_good_night_and_activity,
+            execute_scheduler_job,
             trigger,
-            args=[job.chat_id],
+            args=[job.job_type, bot, job.chat_id, config, activity_service],
             name=job.job_key,
         )

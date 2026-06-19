@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 import psycopg
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
+from psycopg.sql import Identifier, SQL
 
-from app.core.config import get_config
+from app.core.config import AppConfig
 from app.storage.migrate import run_migrations
 from app.storage.pg_repo import (
     PgActivityRepository,
@@ -16,11 +20,96 @@ from app.storage.pg_repo import (
 )
 
 
+TEST_DB_URL_ENV = "TEST_POSTGRES_URL"
+KEEP_TEST_DATABASES_ENV = "KEEP_TEST_DATABASES"
+
+
+def _get_test_postgres_url() -> str:
+    url = os.environ.get(TEST_DB_URL_ENV)
+    if not url:
+        pytest.skip(f"{TEST_DB_URL_ENV} is not set; skipping database integration tests.")
+    return url
+
+
+def _should_keep_test_databases() -> bool:
+    return os.environ.get(KEEP_TEST_DATABASES_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+async def _run_test_migrations(postgres_url: str) -> None:
+    config = AppConfig(
+        BOT_TOKEN="dummy",
+        OPENAI_API_KEY="test-key",
+        POSTGRES_URL=postgres_url,
+        _env_file=None,
+    )
+    await run_migrations(config=config)
+
+
+def _get_database_name(postgres_url: str) -> str:
+    conninfo = conninfo_to_dict(postgres_url)
+    dbname = conninfo.get("dbname")
+    if not dbname:
+        raise AssertionError(f"{TEST_DB_URL_ENV} must include a database name.")
+    return dbname
+
+
+def _get_admin_conninfo(postgres_url: str) -> str:
+    return make_conninfo(postgres_url, dbname="postgres")
+
+
+async def _create_database_if_missing(postgres_url: str) -> None:
+    dbname = _get_database_name(postgres_url)
+    admin_conninfo = _get_admin_conninfo(postgres_url)
+
+    async with await psycopg.AsyncConnection.connect(admin_conninfo, autocommit=True) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+            exists = await cur.fetchone()
+            if exists is None:
+                await cur.execute(SQL("CREATE DATABASE {}").format(Identifier(dbname)))
+
+
+async def _drop_database(postgres_url: str) -> None:
+    dbname = _get_database_name(postgres_url)
+    admin_conninfo = _get_admin_conninfo(postgres_url)
+
+    async with await psycopg.AsyncConnection.connect(admin_conninfo, autocommit=True) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = %s AND pid <> pg_backend_pid()
+                """,
+                (dbname,),
+            )
+            await cur.execute(SQL("DROP DATABASE IF EXISTS {}").format(Identifier(dbname)))
+
+
+@pytest_asyncio.fixture
+async def test_database_url() -> str:
+    base_postgres_url = _get_test_postgres_url()
+    ephemeral_db_name = f"family_bot_{uuid4().hex}"
+    postgres_url = make_conninfo(base_postgres_url, dbname=ephemeral_db_name)
+
+    await _create_database_if_missing(postgres_url)
+    await _run_test_migrations(postgres_url)
+
+    try:
+        yield postgres_url
+    finally:
+        if not _should_keep_test_databases():
+            await _drop_database(postgres_url)
+
+
 @pytest.mark.asyncio
-async def test_pg_chat_registry_repo():
-    await run_migrations()
-    config = get_config()
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+async def test_pg_chat_registry_repo(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
 
     repo = PgChatRegistryRepository(conn)
 
@@ -29,7 +118,7 @@ async def test_pg_chat_registry_repo():
 
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            "SELECT chat_id, title, chat_type, is_active, is_approved, removed_at FROM chats WHERE chat_id = %s",
+            "SELECT chat_id, title, chat_type, is_active, is_approved, allow_test, removed_at FROM chats WHERE chat_id = %s",
             (test_chat_id,),
         )
         row = await cur.fetchone()
@@ -38,6 +127,7 @@ async def test_pg_chat_registry_repo():
     assert row["chat_type"] == "group"
     assert row["is_active"] is True
     assert row["is_approved"] is False
+    assert row["allow_test"] is False
     assert row["removed_at"] is None
 
     async with conn.cursor() as cur:
@@ -47,10 +137,8 @@ async def test_pg_chat_registry_repo():
 
 
 @pytest.mark.asyncio
-async def test_pg_activity_repo():
-    await run_migrations()
-    config = get_config()
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+async def test_pg_activity_repo(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
 
     repo = PgActivityRepository(conn)
 
@@ -87,10 +175,8 @@ async def test_pg_activity_repo():
 
 
 @pytest.mark.asyncio
-async def test_pg_scheduler_job_repo():
-    await run_migrations()
-    config = get_config()
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+async def test_pg_scheduler_job_repo(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
 
     repo = PgSchedulerJobRepository(conn)
     jobs = await repo.list_enabled_jobs()
@@ -102,10 +188,8 @@ async def test_pg_scheduler_job_repo():
 
 
 @pytest.mark.asyncio
-async def test_pg_chat_registry_lists_only_approved_chats():
-    await run_migrations()
-    config = get_config()
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+async def test_pg_chat_registry_lists_only_approved_chats(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
 
     repo = PgChatRegistryRepository(conn)
     test_chat_id = 800000 + (uuid4().int % 10000)
@@ -131,10 +215,33 @@ async def test_pg_chat_registry_lists_only_approved_chats():
 
 
 @pytest.mark.asyncio
-async def test_pg_chat_registry_marks_removed_and_requires_reapproval_on_return():
-    await run_migrations()
-    config = get_config()
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+async def test_pg_chat_registry_test_flag_defaults_to_false_and_can_be_enabled(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
+
+    repo = PgChatRegistryRepository(conn)
+    test_chat_id = 600000 + (uuid4().int % 10000)
+
+    await repo.upsert_chat(chat_id=test_chat_id, title="Test Flag Chat", chat_type="group")
+    assert await repo.is_chat_test_allowed(test_chat_id) is False
+
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE chats SET allow_test = TRUE WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+    await conn.commit()
+
+    assert await repo.is_chat_test_allowed(test_chat_id) is True
+
+    async with conn.cursor() as cur:
+        await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
+
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_pg_chat_registry_marks_removed_and_requires_reapproval_on_return(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
 
     repo = PgChatRegistryRepository(conn)
     test_chat_id = 700000 + (uuid4().int % 10000)
@@ -181,12 +288,53 @@ async def test_pg_chat_registry_marks_removed_and_requires_reapproval_on_return(
 
 
 @pytest.mark.asyncio
-async def test_connection_string():
-    await run_migrations()
-    config = get_config()
+async def test_pg_chat_registry_migrates_group_chat_to_supergroup(test_database_url: str):
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
+
+    repo = PgChatRegistryRepository(conn)
+    old_chat_id = 500001
+    new_chat_id = -100500001
+
+    await repo.upsert_chat(chat_id=old_chat_id, title="Migrated Chat", chat_type="group")
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE chats SET is_approved = TRUE, allow_test = TRUE WHERE chat_id = %s",
+            (old_chat_id,),
+        )
+    await conn.commit()
+
+    await repo.migrate_chat(old_chat_id, new_chat_id)
+
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """
+            SELECT chat_id, chat_type, is_active, is_approved, allow_test, removed_at
+            FROM chats
+            WHERE chat_id = %s
+            """,
+            (new_chat_id,),
+        )
+        migrated_row = await cur.fetchone()
+        await cur.execute("SELECT 1 FROM chats WHERE chat_id = %s", (old_chat_id,))
+        old_row = await cur.fetchone()
+
+    assert migrated_row is not None
+    assert migrated_row["chat_id"] == new_chat_id
+    assert migrated_row["chat_type"] == "supergroup"
+    assert migrated_row["is_active"] is True
+    assert migrated_row["is_approved"] is True
+    assert migrated_row["allow_test"] is True
+    assert migrated_row["removed_at"] is None
+    assert old_row is None
+
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_connection_string(test_database_url: str):
     try:
-        conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+        conn = await psycopg.AsyncConnection.connect(test_database_url)
         await conn.close()
         assert True
     except Exception:
-        assert False, "Failed to connect to database with the configured URL"
+        assert False, f"Failed to connect to the configured test database from {TEST_DB_URL_ENV}"
