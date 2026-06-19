@@ -37,6 +37,21 @@ async def send_startup_greetings(bot: Bot, chat_registry_service: ChatRegistrySe
             logger.exception("Failed to send startup greeting to chat %s.", chat.chat_id)
 
 
+async def close_runtime_resources(
+    bot: Bot,
+    openai_client: OpenAIClient | None,
+    conn: psycopg.AsyncConnection | None,
+    scheduler: AsyncIOScheduler | None,
+) -> None:
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+    await bot.session.close()
+    if openai_client is not None:
+        await openai_client.aclose()
+    if conn is not None:
+        await conn.close()
+
+
 async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -59,52 +74,55 @@ async def main() -> None:
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    bot_me = await bot.get_me()
-    dp = Dispatcher(storage=MemoryStorage())
-
-    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
-
-    # Repositories & services
-    activity_repo = PgActivityRepository(conn)
-    chat_registry_repo = PgChatRegistryRepository(conn)
-    scheduler_job_repo = PgSchedulerJobRepository(conn)
-
-    activity_service = ActivityService(repo=activity_repo)
-    chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
-
-    openai_client = OpenAIClient(
-        api_key=config.openai_api_key,
-        model=config.openai_model,
-    )
-
-    ai_service = AiService(primary=openai_client)
-
-    setup_handlers(
-        dp,
-        config,
-        activity_service,
-        ai_service,
-        chat_registry_service,
-        bot_me.username,
-        bot_me.id,
-    )
-
-    await send_startup_greetings(bot, chat_registry_service)
-
+    openai_client: OpenAIClient | None = None
+    conn: psycopg.AsyncConnection | None = None
     scheduler: AsyncIOScheduler | None = None
-    if config.enable_scheduler:
-        scheduler = AsyncIOScheduler()
-        await setup_scheduler(scheduler, bot, config, activity_service, scheduler_job_repo)
-        scheduler.start()
-
     try:
+        bot_me = await bot.get_me()
+        dp = Dispatcher(storage=MemoryStorage())
+
+        conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+
+        # Repositories & services
+        activity_repo = PgActivityRepository(conn)
+        chat_registry_repo = PgChatRegistryRepository(conn)
+        scheduler_job_repo = PgSchedulerJobRepository(conn)
+
+        activity_service = ActivityService(repo=activity_repo)
+        chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
+
+        openai_client = OpenAIClient(
+            api_key=config.openai_api_key,
+            model=config.openai_model,
+        )
+
+        ai_service = AiService(primary=openai_client)
+
+        setup_handlers(
+            dp,
+            config,
+            activity_service,
+            ai_service,
+            chat_registry_service,
+            bot_me.username,
+            bot_me.id,
+        )
+
+        await send_startup_greetings(bot, chat_registry_service)
+
+        if config.enable_scheduler:
+            scheduler = AsyncIOScheduler()
+            await setup_scheduler(scheduler, bot, config, activity_service, scheduler_job_repo)
+            scheduler.start()
+
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        if scheduler is not None:
-            scheduler.shutdown(wait=False)
-        await bot.session.close()
-        await openai_client.aclose()
-        await conn.close()
+        await close_runtime_resources(
+            bot=bot,
+            openai_client=openai_client,
+            conn=conn,
+            scheduler=scheduler,
+        )
 
 
 if __name__ == "__main__":
