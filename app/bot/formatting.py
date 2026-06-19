@@ -8,6 +8,10 @@ def format_good_morning() -> str:
     return "Доброе утро, семья! ☕️ Желаю всем классного дня!"
 
 
+def format_startup_greeting() -> str:
+    return "Бот снова в строю и готов отвечать. Если что, просто упомяните меня в чате."
+
+
 def format_good_night() -> str:
     return "Спокойной ночи, семья 😴 Пусть завтра будет ещё лучше, чем сегодня."
 
@@ -27,4 +31,3 @@ def format_activity_summary(
         f"Сегодня ({today:%d.%m.%Y}) ещё никто не писал: {mentions}.\n"
         "Забегайте в чат хотя бы с парой слов 😊"
     )
-

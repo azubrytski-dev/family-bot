@@ -55,11 +55,6 @@ def setup_handlers(
     bot_user_id: int | None,
 ) -> None:
     logger = logging.getLogger(__name__)
-    target_chat_id = config.target_chat_id
-
-    def is_allowed_chat(chat_id: int) -> bool:
-        # If TARGET_CHAT_ID is not set, allow any chat.
-        return target_chat_id is None or chat_id == target_chat_id
 
     async def _record_chat(message: Message) -> None:
         title = message.chat.title or getattr(message.chat, "full_name", None)
@@ -74,16 +69,12 @@ def setup_handlers(
     @dp.message(CommandStart())
     async def start(message: Message) -> None:
         await _record_chat(message)
-        if not is_allowed_chat(message.chat.id):
-            return
         # No longer sending a reply from the handler.
 
     @dp.message(Command("activate"))
     async def activate(message: Message) -> None:
         logger.info(f"Activating chat {message.chat.id}")
         await _record_chat(message)
-        if not is_allowed_chat(message.chat.id):
-            return
         if not config.enable_activity_tracking:
             return
         # Register the chat and the sender as a member
@@ -100,11 +91,8 @@ def setup_handlers(
 
     @dp.message()
     async def handle_message(message: Message) -> None:
-        logger.info(f"Handling message in chat {message.chat.id}, allowed: {is_allowed_chat(message.chat.id)}")
+        logger.info("Handling message in chat %s", message.chat.id)
         await _record_chat(message)
-
-        if not is_allowed_chat(message.chat.id):
-            return
 
         if config.enable_activity_tracking and message.from_user is not None:
             now = datetime.now(timezone.utc)

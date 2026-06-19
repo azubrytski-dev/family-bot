@@ -10,6 +10,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.bot.formatting import format_startup_greeting
 from app.bot.handlers import setup_handlers
 from app.bot.scheduler import setup_scheduler
 from app.core.config import get_config
@@ -24,6 +25,17 @@ from app.storage.pg_repo import (
     PgChatRegistryRepository,
     PgSchedulerJobRepository,
 )
+
+
+async def send_startup_greetings(bot: Bot, chat_registry_service: ChatRegistryService) -> None:
+    logger = logging.getLogger("startup-greeting")
+    greeting = format_startup_greeting()
+    chats = list(await chat_registry_service.get_active_chats())
+    for chat in chats:
+        try:
+            await bot.send_message(chat.chat_id, greeting)
+        except Exception:
+            logger.exception("Failed to send startup greeting to chat %s.", chat.chat_id)
 
 
 async def main() -> None:
@@ -86,6 +98,8 @@ async def main() -> None:
         bot_me.username,
         bot_me.id,
     )
+
+    await send_startup_greetings(bot, chat_registry_service)
 
     scheduler: AsyncIOScheduler | None = None
     if config.enable_scheduler:
