@@ -21,7 +21,7 @@ class DummyBot:
 class ScheduledJobRecord(TypedDict):
     func: object
     trigger: object
-    args: list[object] | None
+    args: list[object]
     name: str | None
 
 
@@ -30,7 +30,7 @@ class RecordingScheduler:
         self.jobs: list[ScheduledJobRecord] = []
 
     def add_job(self, func, trigger, args=None, name=None):  # type: ignore[no-untyped-def]
-        self.jobs.append({"func": func, "trigger": trigger, "args": args, "name": name})
+        self.jobs.append({"func": func, "trigger": trigger, "args": list(args or []), "name": name})
 
 
 class InMemorySchedulerJobRepo:
@@ -52,7 +52,7 @@ class InMemoryActivityRepo:
         return []
 
 
-def _make_config(monkeypatch, target_chat_id: str | None = "321") -> AppConfig:
+def _make_config(monkeypatch) -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
