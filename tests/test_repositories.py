@@ -29,7 +29,7 @@ async def test_pg_chat_registry_repo():
 
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            "SELECT chat_id, title, chat_type, is_active, is_approved FROM chats WHERE chat_id = %s",
+            "SELECT chat_id, title, chat_type, is_active, is_approved, removed_at FROM chats WHERE chat_id = %s",
             (test_chat_id,),
         )
         row = await cur.fetchone()
@@ -38,6 +38,7 @@ async def test_pg_chat_registry_repo():
     assert row["chat_type"] == "group"
     assert row["is_active"] is True
     assert row["is_approved"] is False
+    assert row["removed_at"] is None
 
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
@@ -122,6 +123,56 @@ async def test_pg_chat_registry_lists_only_approved_chats():
     chats = await repo.list_approved_chats()
 
     assert any(chat.chat_id == test_chat_id and chat.title == "Greeting Chat" for chat in chats)
+
+    async with conn.cursor() as cur:
+        await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
+
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_pg_chat_registry_marks_removed_and_requires_reapproval_on_return():
+    await run_migrations()
+    config = get_config()
+    conn = await psycopg.AsyncConnection.connect(config.postgres_url)
+
+    repo = PgChatRegistryRepository(conn)
+    test_chat_id = 700000 + (uuid4().int % 10000)
+
+    await repo.upsert_chat(chat_id=test_chat_id, title="Lifecycle Chat", chat_type="group")
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE chats SET is_approved = TRUE WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+    await conn.commit()
+
+    await repo.mark_chat_removed(test_chat_id)
+    assert await repo.is_chat_approved(test_chat_id) is False
+
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT is_active, is_approved, removed_at FROM chats WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+        removed_row = await cur.fetchone()
+    assert removed_row is not None
+    assert removed_row["is_active"] is False
+    assert removed_row["is_approved"] is False
+    assert removed_row["removed_at"] is not None
+
+    await repo.upsert_chat(chat_id=test_chat_id, title="Lifecycle Chat", chat_type="group")
+
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT is_active, is_approved, removed_at FROM chats WHERE chat_id = %s",
+            (test_chat_id,),
+        )
+        readded_row = await cur.fetchone()
+    assert readded_row is not None
+    assert readded_row["is_active"] is True
+    assert readded_row["is_approved"] is False
+    assert readded_row["removed_at"] is None
 
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
