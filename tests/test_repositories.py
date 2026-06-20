@@ -17,6 +17,7 @@ from app.core.config import AppConfig
 from app.storage.migrate import run_migrations
 from app.storage.pg_repo import (
     PgActivityRepository,
+    PgAppConfigRepository,
     PgChatRegistryRepository,
     PgSchedulerJobRepository,
 )
@@ -204,6 +205,33 @@ async def test_pg_scheduler_job_repo(test_database_url: str):
 
     assert any(job.job_key == "good_morning" for job in jobs)
     assert any(job.job_type == "good_night_and_activity" for job in jobs)
+
+
+@pytest.mark.asyncio
+async def test_pg_app_config_repo_lists_enabled_values(test_database_url: str):
+    repo = PgAppConfigRepository(test_database_url)
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
+
+    async with conn.cursor() as cur:
+        await cur.execute(
+            """
+            INSERT INTO app_config (parameter, value, is_enabled)
+            VALUES
+                ('weather.city', 'Minsk', TRUE),
+                ('weather.city', 'Tbilisi', FALSE),
+                ('weather.city', 'Batumi', TRUE),
+                ('other.key', 'Ignored', TRUE)
+            """
+        )
+    await conn.commit()
+
+    values = await repo.list_enabled_values("weather.city")
+
+    assert values == ["Minsk", "Batumi"]
+
+    async with conn.cursor() as cur:
+        await cur.execute("DELETE FROM app_config")
+    await conn.close()
 
 
 @pytest.mark.asyncio

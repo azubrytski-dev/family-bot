@@ -13,6 +13,7 @@ from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
+from app.core.services.weather_service import WeatherService
 
 
 def _message_text(message: Message) -> str:
@@ -57,13 +58,45 @@ def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
     }
 
 
-def _test_command_job_type(text: str) -> str | None:
+def _test_command_action(text: str) -> str | None:
     command = text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
     if command == "/test_morning":
         return "good_morning"
     if command == "/test_night":
         return "good_night_and_activity"
+    if command == "/weather_test":
+        return "weather_test"
     return None
+
+
+async def _handle_test_command(
+    *,
+    action: str,
+    message: Message,
+    bot,
+    config: AppConfig,
+    activity_service: ActivityService,
+    weather_service: WeatherService,
+    chat_registry: ChatRegistryService,
+    logger: logging.Logger,
+) -> bool:
+    if not await chat_registry.is_chat_test_allowed(message.chat.id):
+        logger.info("Chat %s is approved but test commands are disabled.", message.chat.id)
+        await message.answer("Тестовые команды для этого чата отключены.")
+        return True
+
+    if action == "weather_test":
+        await message.answer(await weather_service.build_weather_summary())
+        return True
+
+    await execute_scheduler_job(
+        job_type=action,
+        bot=bot,
+        chat_id=message.chat.id,
+        config=config,
+        activity_service=activity_service,
+    )
+    return True
 
 
 def setup_handlers(
@@ -72,6 +105,7 @@ def setup_handlers(
     config: AppConfig,
     activity_service: ActivityService,
     ai_service: AiService,
+    weather_service: WeatherService,
     chat_registry: ChatRegistryService,
     bot_username: str | None,
     bot_user_id: int | None,
@@ -149,20 +183,20 @@ def setup_handlers(
             logger.info("Chat %s is pending approval; skipping bot interaction.", message.chat.id)
             return
 
-        job_type = _test_command_job_type(_message_text(message))
-        if job_type is not None:
-            if not await chat_registry.is_chat_test_allowed(message.chat.id):
-                logger.info("Chat %s is approved but test commands are disabled.", message.chat.id)
-                await message.answer("Тестовые команды для этого чата отключены.")
-                return
-            await execute_scheduler_job(
-                job_type=job_type,
+        action = _test_command_action(_message_text(message))
+        if action is not None:
+            handled = await _handle_test_command(
+                action=action,
+                message=message,
                 bot=bot,
-                chat_id=message.chat.id,
                 config=config,
                 activity_service=activity_service,
+                weather_service=weather_service,
+                chat_registry=chat_registry,
+                logger=logger,
             )
-            return
+            if handled:
+                return
 
         if config.enable_activity_tracking and message.from_user is not None:
             now = datetime.now(timezone.utc)

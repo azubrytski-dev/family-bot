@@ -27,3 +27,14 @@ async def test_reply_to_mention_uses_base_prompt():
     assert BASE_FAMILY_PROMPT in client.last_prompt
 
 
+@pytest.mark.asyncio
+async def test_generate_weather_summary_uses_base_prompt_and_payload():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    await service.generate_weather_summary('{"cities":[{"city":"Minsk"}]}')
+
+    assert client.last_prompt is not None
+    assert BASE_FAMILY_PROMPT in client.last_prompt
+    assert '"city":"Minsk"' in client.last_prompt
+

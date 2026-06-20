@@ -24,3 +24,15 @@ class SchedulerJob:
     timezone_name: str
     chat_id: int | None
     enabled: bool
+
+
+@dataclass
+class WeatherObservation:
+    city: str
+    latitude: float
+    longitude: float
+    temperature_c: float
+    apparent_temperature_c: float
+    condition_code: int
+    condition_text: str
+    wind_speed_m_s: float

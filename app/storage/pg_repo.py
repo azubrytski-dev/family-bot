@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from app.core.models import ChatRecord, SchedulerJob
 from app.core.services.activity_service import ActivityRepository
 from app.storage.repo import (
+    AppConfigRepository,
     ChatRegistryRepository,
     SchedulerJobRepository,
 )
@@ -316,3 +317,32 @@ class PgSchedulerJobRepository(SchedulerJobRepository):
             )
             for row in rows
         ]
+
+
+class PgAppConfigRepository(AppConfigRepository):
+    def __init__(self, postgres_url: str) -> None:
+        self._postgres_url = postgres_url
+
+    @asynccontextmanager
+    async def _connection(self) -> AsyncIterator[psycopg.AsyncConnection]:
+        conn = await psycopg.AsyncConnection.connect(self._postgres_url, autocommit=True)
+        try:
+            yield conn
+        finally:
+            await conn.close()
+
+    async def list_enabled_values(self, parameter: str) -> list[str]:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT value
+                    FROM app_config
+                    WHERE parameter = %s
+                      AND is_enabled = TRUE
+                    ORDER BY id
+                    """,
+                    (parameter,),
+                )
+                rows = await cur.fetchall()
+        return [str(row["value"]) for row in rows]
