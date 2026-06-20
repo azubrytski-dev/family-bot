@@ -36,3 +36,38 @@ class WeatherObservation:
     condition_code: int
     condition_text: str
     wind_speed_m_s: float
+
+
+@dataclass
+class WeatherTimeSlot:
+    label: str
+    time_iso: str
+    temperature_c: float
+    apparent_temperature_c: float
+    precipitation_probability: int
+    precipitation_mm: float
+    weather_code: int
+    weather_text: str
+    wind_speed_m_s: float
+    wind_gust_m_s: float
+    uv_index: float
+
+
+@dataclass
+class SevereWeatherAlert:
+    city: str
+    emoji: str
+    title: str
+    details: str
+
+
+@dataclass
+class WeatherForecast:
+    current: WeatherObservation
+    morning: WeatherTimeSlot
+    afternoon: WeatherTimeSlot
+    evening: WeatherTimeSlot
+    daily_uv_index_max: float
+    daily_precipitation_probability_max: int
+    daily_wind_gust_max_m_s: float
+    severe_alerts: list[SevereWeatherAlert]

@@ -16,7 +16,9 @@ from app.core.services.chat_service import ChatRegistryService
 from app.core.services.weather_service import WeatherService
 
 
-def _message_text(message: Message) -> str:
+def _message_text(message: Message | None) -> str:
+    if message is None:
+        return ""
     return (message.text or message.caption or "").strip()
 
 
@@ -45,7 +47,17 @@ def _build_ai_context(message: Message) -> str:
         or getattr(message.from_user, "username", None)
         or "Unknown"
     )
-    return f"Автор: {author}\nСообщение: {_message_text(message)}"
+    user_message = _message_text(message)
+    reply_text = _message_text(getattr(message, "reply_to_message", None))
+
+    if reply_text:
+        return (
+            f"Автор: {author}\n"
+            f"bot_message: {reply_text}\n"
+            f"user_reply: {user_message}"
+        )
+
+    return f"Автор: {author}\nСообщение: {user_message}"
 
 
 def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
@@ -95,6 +107,7 @@ async def _handle_test_command(
         chat_id=message.chat.id,
         config=config,
         activity_service=activity_service,
+        weather_service=weather_service,
     )
     return True
 

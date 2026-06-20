@@ -28,6 +28,18 @@ async def test_reply_to_mention_uses_base_prompt():
 
 
 @pytest.mark.asyncio
+async def test_reply_to_mention_mentions_reply_context_format():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    await service.reply_to_mention("bot_message: Привет\nuser_reply: А что дальше?")
+
+    assert client.last_prompt is not None
+    assert "bot_message" in client.last_prompt
+    assert "user_reply" in client.last_prompt
+
+
+@pytest.mark.asyncio
 async def test_generate_weather_summary_uses_base_prompt_and_payload():
     client = DummyClient()
     service = AiService(primary=client)
@@ -37,4 +49,3 @@ async def test_generate_weather_summary_uses_base_prompt_and_payload():
     assert client.last_prompt is not None
     assert BASE_FAMILY_PROMPT in client.last_prompt
     assert '"city":"Minsk"' in client.last_prompt
-

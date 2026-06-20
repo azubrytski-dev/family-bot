@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Iterable, Protocol
 
-from app.core.models import WeatherObservation
+from app.core.models import SevereWeatherAlert, WeatherForecast, WeatherObservation, WeatherTimeSlot
 from app.core.services.ai_service import AiService
 
 
@@ -15,6 +15,8 @@ class WeatherConfigRepository(Protocol):
 
 class WeatherClient(Protocol):
     async def fetch_current_weather(self, city_name: str) -> WeatherObservation: ...
+
+    async def fetch_city_forecast(self, city_name: str) -> WeatherForecast: ...
 
 
 class WeatherService:
@@ -56,6 +58,46 @@ class WeatherService:
             self._logger.exception("AI weather summary generation failed; using deterministic fallback.")
             return self._build_fallback_summary(observations)
 
+    async def build_morning_forecast_summary(self) -> str:
+        forecasts = await self._load_city_forecasts()
+        if not forecasts:
+            return "Сейчас не получилось собрать утреннюю сводку погоды. Попробуйте ещё раз чуть позже."
+
+        weather_payload = self._build_morning_payload(forecasts)
+        try:
+            return await self._ai_service.generate_weather_morning_summary(weather_payload)
+        except Exception:
+            self._logger.exception("AI morning weather summary generation failed; using deterministic fallback.")
+            return self._build_morning_fallback_summary(forecasts)
+
+    async def build_severe_weather_alerts(self) -> list[str]:
+        forecasts = await self._load_city_forecasts()
+        messages: list[str] = []
+        for forecast in forecasts:
+            if not forecast.severe_alerts:
+                continue
+            messages.append(self._format_severe_alert_message(forecast.current.city, forecast.severe_alerts))
+        return messages
+
+    async def _load_city_forecasts(self) -> list[WeatherForecast]:
+        configured_cities = [city for city in await self._config_repo.list_enabled_values("weather.city") if city]
+        if not configured_cities:
+            self._logger.info("No weather.city config rows found for weather forecast flow.")
+            return []
+
+        results = await asyncio.gather(
+            *(self._weather_client.fetch_city_forecast(city) for city in configured_cities),
+            return_exceptions=True,
+        )
+
+        forecasts: list[WeatherForecast] = []
+        for city, result in zip(configured_cities, results, strict=True):
+            if isinstance(result, Exception):
+                self._logger.warning("Failed to fetch forecast for %s: %s", city, result)
+                continue
+            forecasts.append(result)
+        return forecasts
+
     def _build_weather_payload(self, observations: list[WeatherObservation]) -> str:
         payload = {
             "cities": [
@@ -71,6 +113,23 @@ class WeatherService:
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
+    def _build_morning_payload(self, forecasts: list[WeatherForecast]) -> str:
+        payload = {
+            "cities": [
+                {
+                    "city": forecast.current.city,
+                    "утро": self._slot_payload(forecast.morning),
+                    "день": self._slot_payload(forecast.afternoon),
+                    "вечер": self._slot_payload(forecast.evening),
+                    "daily_uv_index_max": round(forecast.daily_uv_index_max, 1),
+                    "daily_precipitation_probability_max": forecast.daily_precipitation_probability_max,
+                    "daily_wind_gust_max_m_s": round(forecast.daily_wind_gust_max_m_s, 1),
+                }
+                for forecast in forecasts
+            ]
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
     def _build_fallback_summary(self, observations: list[WeatherObservation]) -> str:
         parts = [
             (
@@ -82,6 +141,24 @@ class WeatherService:
         suggestion = self._build_clothing_hint(observations)
         return f"{'; '.join(parts)}. {suggestion}".strip()
 
+    def _build_morning_fallback_summary(self, forecasts: list[WeatherForecast]) -> str:
+        return " ".join(self._build_city_forecast_sentence(forecast) for forecast in forecasts)
+
+    def _build_city_forecast_sentence(self, forecast: WeatherForecast) -> str:
+        slots = [forecast.morning, forecast.afternoon, forecast.evening]
+        rain_slots = [slot.label for slot in slots if slot.precipitation_probability >= 55]
+        windy_slots = [slot.label for slot in slots if slot.wind_gust_m_s >= 12]
+        uv_part = ""
+        if forecast.daily_uv_index_max >= 6:
+            uv_part = f" UV до {round(forecast.daily_uv_index_max, 1)}: лучше взять SPF."
+        rain_part = f" Дождь вероятнее {', '.join(rain_slots)}." if rain_slots else ""
+        wind_part = f" Ветрено {', '.join(windy_slots)}." if windy_slots else ""
+        return (
+            f"{forecast.current.city}: утром {self._slot_brief(forecast.morning)}, "
+            f"днём {self._slot_brief(forecast.afternoon)}, вечером {self._slot_brief(forecast.evening)}."
+            f"{rain_part}{wind_part}{uv_part}"
+        ).strip()
+
     def _build_clothing_hint(self, observations: list[WeatherObservation]) -> str:
         coldest = min(item.apparent_temperature_c for item in observations)
         if coldest <= 0:
@@ -91,6 +168,32 @@ class WeatherService:
         if coldest <= 18:
             return "Подойдёт лёгкая верхняя одежда или кофта."
         return "Можно одеться легко по погоде."
+
+    def _format_severe_alert_message(self, city: str, alerts: list[SevereWeatherAlert]) -> str:
+        unique_parts: list[str] = []
+        for alert in alerts:
+            part = f"{alert.emoji} {alert.title}: {alert.details}"
+            if part not in unique_parts:
+                unique_parts.append(part)
+        return f"Погодное предупреждение для {city}: " + " ".join(unique_parts)
+
+    @staticmethod
+    def _slot_brief(slot: WeatherTimeSlot) -> str:
+        return f"{slot.weather_text}, {WeatherService._format_temp(slot.temperature_c)}°C"
+
+    @staticmethod
+    def _slot_payload(slot: WeatherTimeSlot) -> dict[str, object]:
+        return {
+            "time": slot.time_iso,
+            "temperature_c": round(slot.temperature_c),
+            "apparent_temperature_c": round(slot.apparent_temperature_c),
+            "condition": slot.weather_text,
+            "precipitation_probability": slot.precipitation_probability,
+            "precipitation_mm": round(slot.precipitation_mm, 1),
+            "wind_speed_m_s": round(slot.wind_speed_m_s, 1),
+            "wind_gust_m_s": round(slot.wind_gust_m_s, 1),
+            "uv_index": round(slot.uv_index, 1),
+        }
 
     @staticmethod
     def _format_temp(value: float) -> str:
