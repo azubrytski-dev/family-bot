@@ -35,7 +35,7 @@ class WeatherObservation:
     apparent_temperature_c: float
     condition_code: int
     condition_text: str
-    wind_speed_m_s: float
+    wind_speed_km_h: float
 
 
 @dataclass
@@ -48,8 +48,8 @@ class WeatherTimeSlot:
     precipitation_mm: float
     weather_code: int
     weather_text: str
-    wind_speed_m_s: float
-    wind_gust_m_s: float
+    wind_speed_km_h: float
+    wind_gust_km_h: float
     uv_index: float
 
 
@@ -69,5 +69,5 @@ class WeatherForecast:
     evening: WeatherTimeSlot
     daily_uv_index_max: float
     daily_precipitation_probability_max: int
-    daily_wind_gust_max_m_s: float
+    daily_wind_gust_max_km_h: float
     severe_alerts: list[SevereWeatherAlert]

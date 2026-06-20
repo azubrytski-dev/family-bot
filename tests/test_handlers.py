@@ -22,7 +22,7 @@ class DummyWeatherService:
         self.summary = summary
         self.calls = 0
 
-    async def build_weather_summary(self) -> str:
+    async def build_morning_forecast_summary(self) -> str:
         self.calls += 1
         return self.summary
 

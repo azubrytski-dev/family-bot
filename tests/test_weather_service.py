@@ -45,14 +45,24 @@ class RecordingAiClient:
     def __init__(self, reply: str = "Погодка отличная.") -> None:
         self.reply = reply
         self.last_prompt: str | None = None
+        self.last_system_prompt: str | None = None
+        self.last_user_prompt: str | None = None
 
     async def generate_text(self, prompt: str) -> str:
         self.last_prompt = prompt
         return self.reply
 
+    async def generate_messages(self, system_prompt: str, user_prompt: str) -> str:
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
+        return self.reply
+
 
 class FailingAiClient:
     async def generate_text(self, prompt: str) -> str:
+        raise RuntimeError("AI unavailable")
+
+    async def generate_messages(self, system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError("AI unavailable")
 
 
@@ -65,7 +75,7 @@ def _observation(city: str, temp: float, apparent: float, condition: str) -> Wea
         apparent_temperature_c=apparent,
         condition_code=0,
         condition_text=condition,
-        wind_speed_m_s=3.0,
+        wind_speed_km_h=3.0,
     )
 
 
@@ -89,8 +99,8 @@ def _slot(
         precipitation_mm=rain_mm,
         weather_code=weather_code,
         weather_text=condition,
-        wind_speed_m_s=6.0,
-        wind_gust_m_s=wind_gust,
+        wind_speed_km_h=6.0,
+        wind_gust_km_h=wind_gust,
         uv_index=uv_index,
     )
 
@@ -119,7 +129,7 @@ def _forecast(
             afternoon_slot.precipitation_probability,
             evening_slot.precipitation_probability,
         ),
-        daily_wind_gust_max_m_s=wind_gust_max,
+        daily_wind_gust_max_km_h=wind_gust_max,
         severe_alerts=list(alerts or []),
     )
 
@@ -237,9 +247,14 @@ async def test_weather_service_returns_morning_summary_from_ai():
     summary = await service.build_morning_forecast_summary()
 
     assert summary == "Утром ясно, днём возможен дождь, SPF пригодится."
-    assert ai_client.last_prompt is not None
-    assert "daily_uv_index_max" in ai_client.last_prompt
-    assert "день" in ai_client.last_prompt
+    assert ai_client.last_system_prompt is not None
+    assert "ОДНО общее сообщение" in ai_client.last_system_prompt
+    assert "Начни сообщение с даты" in ai_client.last_system_prompt
+    assert ai_client.last_user_prompt is not None
+    assert '"date": "2026-06-20"' in ai_client.last_user_prompt
+    assert '"city": "Minsk"' in ai_client.last_user_prompt
+    assert '"daily_uv_index_max": 7.2' in ai_client.last_user_prompt
+    assert '"wind_speed_kmh": 6.0' in ai_client.last_user_prompt
 
 
 @pytest.mark.asyncio
@@ -250,9 +265,9 @@ async def test_weather_service_morning_fallback_mentions_rain_wind_and_spf():
             forecasts={
                 "Minsk": _forecast(
                     "Minsk",
-                    afternoon=_slot("день", 18, 80, 5.0, 14.0, 7.0, "дождь"),
+                    afternoon=_slot("день", 18, 80, 5.0, 34.0, 7.0, "дождь"),
                     uv_max=7.0,
-                    wind_gust_max=14.0,
+                    wind_gust_max=34.0,
                 )
             }
         ),
@@ -262,8 +277,11 @@ async def test_weather_service_morning_fallback_mentions_rain_wind_and_spf():
     summary = await service.build_morning_forecast_summary()
 
     assert "Дождь вероятнее" in summary
-    assert "Ветрено" in summary
+    assert "Ветер заметный" in summary
     assert "SPF" in summary
+    assert "Утро:" in summary
+    assert "День:" in summary
+    assert "Вечер:" in summary
 
 
 @pytest.mark.asyncio

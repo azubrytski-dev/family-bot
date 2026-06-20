@@ -97,7 +97,7 @@ class OpenMeteoWeatherClient:
             apparent_temperature_c=float(current["apparent_temperature"]),
             condition_code=condition_code,
             condition_text=_WEATHER_CODE_DESCRIPTIONS.get(condition_code, "неизвестная погода"),
-            wind_speed_m_s=float(current["wind_speed_10m"]),
+            wind_speed_km_h=float(current["wind_speed_10m"]),
         )
 
         morning = self._build_time_slot(hourly, 9, "утро")
@@ -114,12 +114,12 @@ class OpenMeteoWeatherClient:
             evening=evening,
             daily_uv_index_max=daily_uv_index_max,
             daily_precipitation_probability_max=daily_precip_probability_max,
-            daily_wind_gust_max_m_s=daily_wind_gust_max,
+            daily_wind_gust_max_km_h=daily_wind_gust_max,
             severe_alerts=self._build_severe_alerts(
                 city_name=city_name,
                 slots=[morning, afternoon, evening],
                 daily_uv_index_max=daily_uv_index_max,
-                daily_wind_gust_max_m_s=daily_wind_gust_max,
+                daily_wind_gust_max_km_h=daily_wind_gust_max,
             ),
         )
 
@@ -146,8 +146,8 @@ class OpenMeteoWeatherClient:
             precipitation_mm=float(self._hourly_value(hourly, "precipitation", selected_index)),
             weather_code=weather_code,
             weather_text=_WEATHER_CODE_DESCRIPTIONS.get(weather_code, "неизвестная погода"),
-            wind_speed_m_s=float(self._hourly_value(hourly, "wind_speed_10m", selected_index)),
-            wind_gust_m_s=float(self._hourly_value(hourly, "wind_gusts_10m", selected_index)),
+            wind_speed_km_h=float(self._hourly_value(hourly, "wind_speed_10m", selected_index)),
+            wind_gust_km_h=float(self._hourly_value(hourly, "wind_gusts_10m", selected_index)),
             uv_index=float(self._hourly_value(hourly, "uv_index", selected_index)),
         )
 
@@ -157,7 +157,7 @@ class OpenMeteoWeatherClient:
         city_name: str,
         slots: list[WeatherTimeSlot],
         daily_uv_index_max: float,
-        daily_wind_gust_max_m_s: float,
+        daily_wind_gust_max_km_h: float,
     ) -> list[SevereWeatherAlert]:
         alerts: list[SevereWeatherAlert] = []
         for slot in slots:
@@ -182,7 +182,7 @@ class OpenMeteoWeatherClient:
                 )
                 break
 
-        if daily_wind_gust_max_m_s >= 18:
+        if daily_wind_gust_max_km_h >= 60:
             alerts.append(
                 SevereWeatherAlert(
                     city=city_name,

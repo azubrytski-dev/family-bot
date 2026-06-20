@@ -106,7 +106,7 @@ class WeatherService:
                     "temperature_c": round(item.temperature_c),
                     "apparent_temperature_c": round(item.apparent_temperature_c),
                     "condition": item.condition_text,
-                    "wind_speed_m_s": round(item.wind_speed_m_s, 1),
+                    "wind_speed_kmh": round(item.wind_speed_km_h, 1),
                 }
                 for item in observations
             ]
@@ -114,7 +114,9 @@ class WeatherService:
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _build_morning_payload(self, forecasts: list[WeatherForecast]) -> str:
+        forecast_date = forecasts[0].morning.time_iso.split("T", maxsplit=1)[0]
         payload = {
+            "date": forecast_date,
             "cities": [
                 {
                     "city": forecast.current.city,
@@ -123,7 +125,15 @@ class WeatherService:
                     "вечер": self._slot_payload(forecast.evening),
                     "daily_uv_index_max": round(forecast.daily_uv_index_max, 1),
                     "daily_precipitation_probability_max": forecast.daily_precipitation_probability_max,
-                    "daily_wind_gust_max_m_s": round(forecast.daily_wind_gust_max_m_s, 1),
+                    "daily_wind_gust_max_kmh": round(forecast.daily_wind_gust_max_km_h, 1),
+                    "alerts": [
+                        {
+                            "emoji": alert.emoji,
+                            "title": alert.title,
+                            "details": alert.details,
+                        }
+                        for alert in forecast.severe_alerts
+                    ],
                 }
                 for forecast in forecasts
             ]
@@ -142,21 +152,42 @@ class WeatherService:
         return f"{'; '.join(parts)}. {suggestion}".strip()
 
     def _build_morning_fallback_summary(self, forecasts: list[WeatherForecast]) -> str:
-        return " ".join(self._build_city_forecast_sentence(forecast) for forecast in forecasts)
+        return "\n\n".join(self._build_city_forecast_block(forecast) for forecast in forecasts)
 
-    def _build_city_forecast_sentence(self, forecast: WeatherForecast) -> str:
+    def _build_city_forecast_block(self, forecast: WeatherForecast) -> str:
         slots = [forecast.morning, forecast.afternoon, forecast.evening]
         rain_slots = [slot.label for slot in slots if slot.precipitation_probability >= 55]
-        windy_slots = [slot.label for slot in slots if slot.wind_gust_m_s >= 12]
-        uv_part = ""
+        windy_slots = [slot.label for slot in slots if slot.wind_gust_km_h >= 25]
+        uv_part = f"UV: до {round(forecast.daily_uv_index_max, 1)}."
         if forecast.daily_uv_index_max >= 6:
-            uv_part = f" UV до {round(forecast.daily_uv_index_max, 1)}: лучше взять SPF."
-        rain_part = f" Дождь вероятнее {', '.join(rain_slots)}." if rain_slots else ""
-        wind_part = f" Ветрено {', '.join(windy_slots)}." if windy_slots else ""
+            uv_part += " SPF пригодится."
+        rain_part = (
+            f"Дождь вероятнее: {', '.join(rain_slots)}."
+            if rain_slots
+            else "Дождь маловероятен."
+        )
+        wind_part = (
+            f"Ветер заметный: {', '.join(windy_slots)}."
+            if windy_slots
+            else "Сильного ветра не ожидается."
+        )
+        alert_part = ""
+        if forecast.severe_alerts:
+            alert_part = " ".join(
+                f"{alert.emoji} {alert.title}: {alert.details}"
+                for alert in forecast.severe_alerts
+            )
+            alert_part = f"\nПредупреждение: {alert_part}"
+
         return (
-            f"{forecast.current.city}: утром {self._slot_brief(forecast.morning)}, "
-            f"днём {self._slot_brief(forecast.afternoon)}, вечером {self._slot_brief(forecast.evening)}."
-            f"{rain_part}{wind_part}{uv_part}"
+            f"{forecast.current.city}\n"
+            f"Утро: {self._slot_brief(forecast.morning)}.\n"
+            f"День: {self._slot_brief(forecast.afternoon)}.\n"
+            f"Вечер: {self._slot_brief(forecast.evening)}.\n"
+            f"{rain_part}\n"
+            f"{wind_part}\n"
+            f"{uv_part}"
+            f"{alert_part}"
         ).strip()
 
     def _build_clothing_hint(self, observations: list[WeatherObservation]) -> str:
@@ -179,7 +210,10 @@ class WeatherService:
 
     @staticmethod
     def _slot_brief(slot: WeatherTimeSlot) -> str:
-        return f"{slot.weather_text}, {WeatherService._format_temp(slot.temperature_c)}°C"
+        return (
+            f"{slot.weather_text}, {WeatherService._format_temp(slot.temperature_c)}°C, "
+            f"ветер {round(slot.wind_speed_km_h)} км/ч"
+        )
 
     @staticmethod
     def _slot_payload(slot: WeatherTimeSlot) -> dict[str, object]:
@@ -190,8 +224,8 @@ class WeatherService:
             "condition": slot.weather_text,
             "precipitation_probability": slot.precipitation_probability,
             "precipitation_mm": round(slot.precipitation_mm, 1),
-            "wind_speed_m_s": round(slot.wind_speed_m_s, 1),
-            "wind_gust_m_s": round(slot.wind_gust_m_s, 1),
+            "wind_speed_kmh": round(slot.wind_speed_km_h, 1),
+            "wind_gust_kmh": round(slot.wind_gust_km_h, 1),
             "uv_index": round(slot.uv_index, 1),
         }
 

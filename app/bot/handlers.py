@@ -98,7 +98,7 @@ async def _handle_test_command(
         return True
 
     if action == "weather_test":
-        await message.answer(await weather_service.build_weather_summary())
+        await message.answer(await weather_service.build_morning_forecast_summary())
         return True
 
     await execute_scheduler_job(

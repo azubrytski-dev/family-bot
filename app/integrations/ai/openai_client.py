@@ -10,6 +10,12 @@ class OpenAIClient:
         self._client = httpx.AsyncClient(timeout=20.0)
 
     async def generate_text(self, prompt: str) -> str:
+        return await self.generate_messages(
+            system_prompt="You are a helpful assistant.",
+            user_prompt=prompt,
+        )
+
+    async def generate_messages(self, system_prompt: str, user_prompt: str) -> str:
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -19,11 +25,15 @@ class OpenAIClient:
             "model": self._model,
             "messages": [
                 {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
                     "role": "user",
-                    "content": prompt
-                }
+                    "content": user_prompt,
+                },
             ],
-            "max_tokens": 200,
+            "max_tokens": 450,
             "temperature": 0.7,
         }
         response = await self._client.post(url, headers=headers, json=payload)
