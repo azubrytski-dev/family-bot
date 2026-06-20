@@ -26,3 +26,7 @@ class ChatRegistryRepository(Protocol):
 
 class SchedulerJobRepository(Protocol):
     async def list_enabled_jobs(self) -> Iterable[SchedulerJob]: ...
+
+
+class AppConfigRepository(Protocol):
+    async def list_enabled_values(self, parameter: str) -> Iterable[str]: ...

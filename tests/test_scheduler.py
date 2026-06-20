@@ -55,6 +55,18 @@ class InMemoryActivityRepo:
         return {}
 
 
+class StubWeatherService:
+    def __init__(self) -> None:
+        self.morning_summary = "Погода утром готова."
+        self.alerts = ["Погодное предупреждение для Minsk: 🌧️ Сильный дождь."]
+
+    async def build_morning_forecast_summary(self) -> str:
+        return self.morning_summary
+
+    async def build_severe_weather_alerts(self) -> list[str]:
+        return list(self.alerts)
+
+
 def _make_config(monkeypatch) -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
@@ -68,8 +80,18 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
     scheduler = RecordingScheduler()
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
     repo = InMemorySchedulerJobRepo(
         [
+            SchedulerJob(
+                job_key="weather_morning",
+                job_type="weather_morning",
+                cron_hour=7,
+                cron_minute=30,
+                timezone_name="Europe/Minsk",
+                chat_id=111,
+                enabled=True,
+            ),
             SchedulerJob(
                 job_key="good_morning",
                 job_type="good_morning",
@@ -91,13 +113,15 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
         ]
     )
 
-    await setup_scheduler(scheduler, bot, cfg, activity_service, repo)  # type: ignore[arg-type]
+    await setup_scheduler(scheduler, bot, cfg, activity_service, weather_service, repo)  # type: ignore[arg-type]
 
-    assert [job["name"] for job in scheduler.jobs] == ["good_morning", "night"]
-    assert scheduler.jobs[0]["args"][0] == "good_morning"
-    assert scheduler.jobs[0]["args"][2] == 321
-    assert scheduler.jobs[1]["args"][0] == "good_night_and_activity"
-    assert scheduler.jobs[1]["args"][2] == 999
+    assert [job["name"] for job in scheduler.jobs] == ["weather_morning", "good_morning", "night"]
+    assert scheduler.jobs[0]["args"][0] == "weather_morning"
+    assert scheduler.jobs[0]["args"][2] == 111
+    assert scheduler.jobs[1]["args"][0] == "good_morning"
+    assert scheduler.jobs[1]["args"][2] == 321
+    assert scheduler.jobs[2]["args"][0] == "good_night_and_activity"
+    assert scheduler.jobs[2]["args"][2] == 999
 
 
 @pytest.mark.asyncio
@@ -106,6 +130,7 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
     scheduler = RecordingScheduler()
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
     repo = InMemorySchedulerJobRepo(
         [
             SchedulerJob(
@@ -120,7 +145,7 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
         ]
     )
 
-    await setup_scheduler(scheduler, bot, cfg, activity_service, repo)  # type: ignore[arg-type]
+    await setup_scheduler(scheduler, bot, cfg, activity_service, weather_service, repo)  # type: ignore[arg-type]
 
     assert scheduler.jobs == []
 
@@ -130,8 +155,9 @@ async def test_execute_scheduler_job_sends_morning_message(monkeypatch):
     cfg = _make_config(monkeypatch)
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
 
-    await execute_scheduler_job("good_morning", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
+    await execute_scheduler_job("good_morning", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
 
     assert bot.sent_messages == [(321, "Доброе утро, зубры! ☕️ Желаю всем классного дня!")]
 
@@ -140,6 +166,7 @@ async def test_execute_scheduler_job_sends_morning_message(monkeypatch):
 async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monkeypatch):
     cfg = _make_config(monkeypatch)
     bot = DummyBot()
+    weather_service = StubWeatherService()
 
     class InactiveLabelRepo(InMemoryActivityRepo):
         async def get_today_activity(self, chat_id, day):  # type: ignore[no-untyped-def]
@@ -153,8 +180,32 @@ async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monk
 
     activity_service = ActivityService(InactiveLabelRepo())  # type: ignore[arg-type]
 
-    await execute_scheduler_job("good_night_and_activity", bot, 321, cfg, activity_service)  # type: ignore[arg-type]
+    await execute_scheduler_job("good_night_and_activity", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
 
     assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
     assert "Inactive User" in bot.sent_messages[1][1]
     assert "id:101" not in bot.sent_messages[1][1]
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_sends_weather_morning_summary(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+
+    await execute_scheduler_job("weather_morning", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
+
+    assert bot.sent_messages == [(321, "Погода утром готова.")]
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_sends_severe_weather_alerts(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+
+    await execute_scheduler_job("weather_alert_check", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
+
+    assert bot.sent_messages == [(321, "Погодное предупреждение для Minsk: 🌧️ Сильный дождь.")]

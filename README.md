@@ -8,6 +8,7 @@ A Telegram bot for a single family group chat with a deliberately narrow active 
 - **Daily activity tracking** per user with PostgreSQL storage.
 - **Database-backed scheduled messages** in Minsk timezone by default, seeded with 08:00 “доброе утро” and 23:00 “спокойной ночи” jobs.
 - **AI replies on mention** using OpenAI.
+- **Manual AI weather summary** via `/weather_test` for cities configured in PostgreSQL.
 
 ### Tech Stack
 
@@ -97,6 +98,21 @@ Each scheduled job row must provide its own `chat_id`.
 > ```bash
 > python -m app.storage.migrate
 > ```
+
+### Weather Setup
+
+Weather cities are configured in PostgreSQL through the `app_config` table.
+
+Example:
+
+```sql
+INSERT INTO app_config (parameter, value, is_enabled)
+VALUES
+  ('weather.city', 'Minsk', TRUE),
+  ('weather.city', 'Tbilisi', TRUE);
+```
+
+The `/weather_test` command uses enabled `weather.city` rows and follows the same approved-chat and `allow_test` checks as the existing test commands.
 
 ### Tests
 

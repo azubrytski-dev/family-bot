@@ -11,10 +11,11 @@ from pytz import timezone as tz
 from app.bot.formatting import format_activity_summary, format_good_morning, format_good_night
 from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
+from app.core.services.weather_service import WeatherService
 from app.storage.repo import SchedulerJobRepository
 
 
-SUPPORTED_JOB_TYPES = {"good_morning", "good_night_and_activity"}
+SUPPORTED_JOB_TYPES = {"good_morning", "good_night_and_activity", "weather_morning", "weather_alert_check"}
 
 
 async def execute_scheduler_job(
@@ -23,9 +24,20 @@ async def execute_scheduler_job(
     chat_id: int,
     config: AppConfig,
     activity_service: ActivityService,
+    weather_service: WeatherService,
 ) -> None:
     if job_type == "good_morning":
         await bot.send_message(chat_id, format_good_morning())
+        return
+
+    if job_type == "weather_morning":
+        await bot.send_message(chat_id, await weather_service.build_morning_forecast_summary())
+        return
+
+    if job_type == "weather_alert_check":
+        alerts = await weather_service.build_severe_weather_alerts()
+        for alert in alerts:
+            await bot.send_message(chat_id, alert)
         return
 
     if job_type != "good_night_and_activity":
@@ -45,6 +57,7 @@ async def setup_scheduler(
     bot: Bot,
     config: AppConfig,
     activity_service: ActivityService,
+    weather_service: WeatherService,
     scheduler_job_repo: SchedulerJobRepository,
 ) -> None:
     logger = logging.getLogger("scheduler")
@@ -76,18 +89,9 @@ async def setup_scheduler(
             timezone=tz(job.timezone_name),
         )
 
-        if job.job_type == "good_morning":
-            scheduler.add_job(
-                execute_scheduler_job,
-                trigger,
-                args=[job.job_type, bot, job.chat_id, config, activity_service],
-                name=job.job_key,
-            )
-            continue
-
         scheduler.add_job(
             execute_scheduler_job,
             trigger,
-            args=[job.job_type, bot, job.chat_id, config, activity_service],
+            args=[job.job_type, bot, job.chat_id, config, activity_service, weather_service],
             name=job.job_key,
         )
