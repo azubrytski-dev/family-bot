@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 import time
+from typing import AsyncIterator
 from uuid import uuid4
 
 import pytest
@@ -45,11 +46,12 @@ def _should_drop_test_databases() -> bool:
 
 
 async def _run_test_migrations(postgres_url: str) -> None:
-    config = AppConfig(
-        BOT_TOKEN="dummy",
-        OPENAI_API_KEY="test-key",
-        POSTGRES_URL=postgres_url,
-        _env_file=None,
+    config = AppConfig.model_validate(
+        {
+            "BOT_TOKEN": "dummy",
+            "OPENAI_API_KEY": "test-key",
+            "POSTGRES_URL": postgres_url,
+        }
     )
     await run_migrations(config=config)
 
@@ -57,7 +59,7 @@ async def _run_test_migrations(postgres_url: str) -> None:
 def _get_database_name(postgres_url: str) -> str:
     conninfo = conninfo_to_dict(postgres_url)
     dbname = conninfo.get("dbname")
-    if not dbname:
+    if not isinstance(dbname, str) or not dbname:
         raise AssertionError(f"{TEST_DB_URL_ENV} must include a database name.")
     return dbname
 
@@ -104,7 +106,7 @@ async def _drop_database(postgres_url: str) -> None:
 
 
 @pytest_asyncio.fixture
-async def test_database_url() -> str:
+async def test_database_url() -> AsyncIterator[str]:
     base_postgres_url = _get_test_postgres_url()
     # Use the configured URL only as a connection template.
     # Every test execution gets its own fresh database name derived from that base.
@@ -308,7 +310,7 @@ async def test_pg_chat_registry_marks_removed_and_requires_reapproval_on_return(
 async def test_pg_chat_registry_migrates_group_chat_to_supergroup(test_database_url: str):
     conn = await psycopg.AsyncConnection.connect(test_database_url)
 
-    repo = PgChatRegistryRepository(conn)
+    repo = PgChatRegistryRepository(test_database_url)
     old_chat_id = 500001
     new_chat_id = -100500001
 
