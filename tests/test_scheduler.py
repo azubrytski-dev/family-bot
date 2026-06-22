@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TypedDict
 
 import pytest
@@ -75,12 +76,13 @@ def _make_config(monkeypatch) -> AppConfig:
 
 
 @pytest.mark.asyncio
-async def test_setup_scheduler_loads_db_jobs(monkeypatch):
+async def test_setup_scheduler_loads_db_jobs(monkeypatch, caplog: pytest.LogCaptureFixture):
     cfg = _make_config(monkeypatch)
     scheduler = RecordingScheduler()
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
     weather_service = StubWeatherService()
+    caplog.set_level(logging.INFO, logger="scheduler")
     repo = InMemorySchedulerJobRepo(
         [
             SchedulerJob(
@@ -122,15 +124,22 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch):
     assert scheduler.jobs[1]["args"][2] == 321
     assert scheduler.jobs[2]["args"][0] == "good_night_and_activity"
     assert scheduler.jobs[2]["args"][2] == 999
+    assert "Loaded 3 enabled scheduler job(s) from database." in caplog.text
+    assert "Found scheduler job key=weather_morning type=weather_morning enabled=True chat_id=111 schedule=07:30 timezone=Europe/Minsk" in caplog.text
+    assert "Registered scheduler job key=weather_morning type=weather_morning chat_id=111 schedule=07:30 timezone=Europe/Minsk." in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
+async def test_setup_scheduler_skips_jobs_without_chat_id(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+):
     cfg = _make_config(monkeypatch)
     scheduler = RecordingScheduler()
     bot = DummyBot()
     activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
     weather_service = StubWeatherService()
+    caplog.set_level(logging.INFO, logger="scheduler")
     repo = InMemorySchedulerJobRepo(
         [
             SchedulerJob(
@@ -148,6 +157,8 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(monkeypatch):
     await setup_scheduler(scheduler, bot, cfg, activity_service, weather_service, repo)  # type: ignore[arg-type]
 
     assert scheduler.jobs == []
+    assert "Found scheduler job key=good_morning type=good_morning enabled=True chat_id=None schedule=08:00 timezone=Europe/Minsk" in caplog.text
+    assert "Skipping scheduler job good_morning because no chat_id is configured in DB." in caplog.text
 
 
 @pytest.mark.asyncio
