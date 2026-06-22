@@ -71,7 +71,11 @@ def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
 
 
 def _test_command_action(text: str) -> str | None:
-    command = text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
+    normalized = text.strip()
+    if not normalized:
+        return None
+
+    command = normalized.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
     if command == "/test_morning":
         return "good_morning"
     if command == "/test_night":

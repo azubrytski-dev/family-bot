@@ -134,6 +134,11 @@ def test_test_command_action_matches_supported_commands():
     assert _test_command_action("/start") is None
 
 
+def test_test_command_action_ignores_empty_text():
+    assert _test_command_action("") is None
+    assert _test_command_action("   ") is None
+
+
 @pytest.mark.asyncio
 async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.MonkeyPatch):
     message = DummyMessage()
