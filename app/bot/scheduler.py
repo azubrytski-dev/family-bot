@@ -71,7 +71,23 @@ async def setup_scheduler(
         logger.warning("No enabled scheduler jobs found in database; scheduler will stay idle.")
         return
 
+    logger.info("Loaded %s enabled scheduler job(s) from database.", len(jobs))
+
     for job in jobs:
+        logger.info(
+            (
+                "Found scheduler job key=%s type=%s enabled=%s chat_id=%s "
+                "schedule=%02d:%02d timezone=%s"
+            ),
+            job.job_key,
+            job.job_type,
+            job.enabled,
+            job.chat_id,
+            job.cron_hour,
+            job.cron_minute,
+            job.timezone_name,
+        )
+
         if job.job_type not in SUPPORTED_JOB_TYPES:
             logger.warning("Skipping unsupported scheduler job type %s for %s.", job.job_type, job.job_key)
             continue
@@ -94,4 +110,13 @@ async def setup_scheduler(
             trigger,
             args=[job.job_type, bot, job.chat_id, config, activity_service, weather_service],
             name=job.job_key,
+        )
+        logger.info(
+            "Registered scheduler job key=%s type=%s chat_id=%s schedule=%02d:%02d timezone=%s.",
+            job.job_key,
+            job.job_type,
+            job.chat_id,
+            job.cron_hour,
+            job.cron_minute,
+            job.timezone_name,
         )
