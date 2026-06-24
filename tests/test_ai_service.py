@@ -32,9 +32,11 @@ async def test_reply_to_mention_uses_base_prompt():
 
     reply = await service.reply_to_mention("Привет, бот!")
 
-    assert "Привет" in reply
-    assert client.last_prompt is not None
-    assert BASE_FAMILY_PROMPT in client.last_prompt
+    assert reply == "Общая сводка по всем городам готова."
+    assert client.last_system_prompt is not None
+    assert BASE_FAMILY_PROMPT in client.last_system_prompt
+    assert client.last_user_prompt is not None
+    assert "Привет, бот!" in client.last_user_prompt
 
 
 @pytest.mark.asyncio
@@ -44,9 +46,24 @@ async def test_reply_to_mention_mentions_reply_context_format():
 
     await service.reply_to_mention("bot_message: Привет\nuser_reply: А что дальше?")
 
-    assert client.last_prompt is not None
-    assert "bot_message" in client.last_prompt
-    assert "user_reply" in client.last_prompt
+    assert client.last_system_prompt is not None
+    assert "не знаешь" not in client.last_system_prompt.lower()
+    assert client.last_user_prompt is not None
+    assert "bot_message" in client.last_user_prompt
+    assert "user_reply" in client.last_user_prompt
+
+
+@pytest.mark.asyncio
+async def test_reply_to_mention_system_prompt_marks_pet_names_as_known_facts():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    await service.reply_to_mention("Как зовут кота Алены?")
+
+    assert client.last_system_prompt is not None
+    assert "The family dog's name is Малыш." in client.last_system_prompt
+    assert "Alyona's cat's name is Луник." in client.last_system_prompt
+    assert "Do not say that you do not know these names." in client.last_system_prompt
 
 
 @pytest.mark.asyncio

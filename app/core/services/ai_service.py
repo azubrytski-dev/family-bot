@@ -9,6 +9,11 @@ from app.core.models import SessionMessage
 BASE_FAMILY_PROMPT = (
     "You are a Telegram bot assistant for the Zubrytski family chat.\n"
     "Family members: Sasha, Inna, Andrei, Alyona.\n\n"
+    "Known family facts:\n"
+    "- The family dog's name is Малыш.\n"
+    "- Alyona's cat's name is Луник.\n"
+    "- Treat these names as known facts.\n"
+    "- Do not say that you do not know these names.\n\n"
     "Your style:\n"
     "- friendly\n"
     "- positive\n"
@@ -52,14 +57,17 @@ class AiService:
             return await self._fallback.generate_messages(system_prompt, user_prompt)
 
     async def reply_to_mention(self, context: str) -> str:
-        prompt = (
+        system_prompt = (
             f"{BASE_FAMILY_PROMPT}\n\n"
             "Тебя упомянули в семейном чате или тебе ответили. Ответь естественно и по‑русски.\n"
             "Если в контексте есть `bot_message` и `user_reply`, учитывай оба сообщения как продолжение диалога.\n\n"
+            "Если вопрос касается известных фактов о семье или питомцах, отвечай на основе этих фактов уверенно и без оговорок.\n"
+        )
+        user_prompt = (
             f"Сообщение из чата:\n{context}\n\n"
             "Сформулируй короткий, дружелюбный ответ от имени семейного бота."
         )
-        return await self._call_with_fallback(prompt)
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)
 
     async def generate_weather_summary(self, weather_payload: str) -> str:
         prompt = (

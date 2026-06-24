@@ -261,4 +261,15 @@ def setup_handlers(
 
         context = _build_ai_context(message)
         reply = await ai_service.reply_to_mention(context)
-        await message.answer(reply)
+        sent_message = await message.answer(reply)
+        if session_memory_service is not None:
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if sent_message_id is not None:
+                sent_message_ts = getattr(sent_message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_bot_reply(
+                    chat_id=message.chat.id,
+                    telegram_message_id=sent_message_id,
+                    message_text=reply,
+                    message_ts_utc=sent_message_ts,
+                    bot_username=bot_username,
+                )

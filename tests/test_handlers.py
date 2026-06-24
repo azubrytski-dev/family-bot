@@ -15,6 +15,7 @@ from app.bot.handlers import (
     _test_command_action,
 )
 from app.core.config import AppConfig
+from app.core.services.session_memory_service import BOT_SESSION_USER_ID
 
 
 class DummyWeatherService:
@@ -42,6 +43,31 @@ class DummyMessage:
 
     async def answer(self, text: str) -> None:
         self.answers.append(text)
+
+
+class DummySessionMemoryService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def record_bot_reply(
+        self,
+        *,
+        chat_id: int,
+        telegram_message_id: int,
+        message_text: str,
+        message_ts_utc,
+        bot_username: str | None,
+    ) -> None:
+        self.calls.append(
+            {
+                "chat_id": chat_id,
+                "telegram_message_id": telegram_message_id,
+                "message_text": message_text,
+                "message_ts_utc": message_ts_utc,
+                "bot_username": bot_username,
+                "user_id": BOT_SESSION_USER_ID,
+            }
+        )
 
 
 class DummyActivityService:
@@ -118,6 +144,33 @@ def test_build_ai_context_includes_bot_message_and_user_reply():
 
     assert "bot_message: Сегодня в Минске прохладно." in context
     assert "user_reply: А завтра?" in context
+
+
+def test_bot_reply_can_be_captured_with_default_bot_user_id():
+    session_memory_service = DummySessionMemoryService()
+
+    import asyncio
+
+    asyncio.run(
+        session_memory_service.record_bot_reply(
+            chat_id=123,
+            telegram_message_id=55,
+            message_text="Привет!",
+            message_ts_utc=SimpleNamespace(),
+            bot_username="family_bot",
+        )
+    )
+
+    assert session_memory_service.calls == [
+        {
+            "chat_id": 123,
+            "telegram_message_id": 55,
+            "message_text": "Привет!",
+            "message_ts_utc": session_memory_service.calls[0]["message_ts_utc"],
+            "bot_username": "family_bot",
+            "user_id": 0,
+        }
+    ]
 
 
 def test_is_active_bot_status_matches_member_like_statuses():

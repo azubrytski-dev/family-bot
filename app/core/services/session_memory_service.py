@@ -13,6 +13,8 @@ SESSION_TTL = timedelta(hours=6)
 MESSAGE_TEXT_LIMIT = 100
 SUMMARY_TEXT_LIMIT = 500
 DEFAULT_TZ_NAME = "Europe/Minsk"
+BOT_SESSION_USER_ID = 0
+BOT_SESSION_DISPLAY_NAME = "Family Bot"
 
 
 class SessionSummaryGenerator(Protocol):
@@ -96,6 +98,26 @@ class SessionMemoryService:
             message_ts_utc=normalized_ts,
             local_date=self._local_date(normalized_ts),
             is_reply_to_bot=is_reply_to_bot,
+        )
+
+    async def record_bot_reply(
+        self,
+        *,
+        chat_id: int,
+        telegram_message_id: int,
+        message_text: str,
+        message_ts_utc: datetime,
+        bot_username: str | None,
+    ) -> None:
+        await self.record_message(
+            chat_id=chat_id,
+            telegram_message_id=telegram_message_id,
+            user_id=BOT_SESSION_USER_ID,
+            username=bot_username,
+            display_name=BOT_SESSION_DISPLAY_NAME,
+            message_text=message_text,
+            message_ts_utc=message_ts_utc,
+            is_reply_to_bot=False,
         )
 
     async def complete_expired_sessions(self, *, as_of_utc: datetime | None = None) -> list[SessionCompletionResult]:

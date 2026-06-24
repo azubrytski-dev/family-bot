@@ -7,6 +7,8 @@ import pytest
 
 from app.core.models import ChatSession, SessionMessage
 from app.core.services.session_memory_service import (
+    BOT_SESSION_DISPLAY_NAME,
+    BOT_SESSION_USER_ID,
     SESSION_TTL,
     SessionMemoryService,
 )
@@ -238,3 +240,28 @@ async def test_invalid_timezone_falls_back_to_default() -> None:
     session = await repo.get_open_session(10)
     assert session is not None
     assert session.local_date.isoformat() == "2026-06-23"
+
+
+@pytest.mark.asyncio
+async def test_record_bot_reply_uses_default_bot_identity() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    ts = datetime(2026, 6, 24, 9, 0, tzinfo=timezone.utc)
+    await service.record_bot_reply(
+        chat_id=10,
+        telegram_message_id=501,
+        message_text="Привет, я рядом.",
+        message_ts_utc=ts,
+        bot_username="family_bot",
+    )
+
+    session = await repo.get_open_session(10)
+    assert session is not None
+    messages = await repo.list_session_messages(session.id)
+    assert len(messages) == 1
+    assert messages[0].user_id == BOT_SESSION_USER_ID
+    assert messages[0].display_name == BOT_SESSION_DISPLAY_NAME
+    assert messages[0].username == "family_bot"
+    assert messages[0].is_reply_to_bot is False
