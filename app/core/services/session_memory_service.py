@@ -41,6 +41,14 @@ class MorningSummaryContext:
     summaries: list[str]
 
 
+@dataclass
+class EveningSummaryContext:
+    yesterday_date: date
+    today_date: date
+    yesterday_summaries: list[str]
+    today_summaries: list[str]
+
+
 def _resolve_timezone(tz_name: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_name)
@@ -209,6 +217,51 @@ class SessionMemoryService:
         )
         normalized_summary = self._normalize_summary_text(preview_summary)
         return MorningSummaryContext(local_date=local_today, summaries=[normalized_summary])
+
+    async def get_evening_summaries(
+        self,
+        *,
+        chat_id: int,
+        as_of_utc: datetime | None = None,
+    ) -> EveningSummaryContext:
+        normalized_as_of = _normalize_utc(as_of_utc or datetime.now(timezone.utc))
+        await self.complete_expired_sessions(as_of_utc=normalized_as_of)
+        local_today = self._local_date(normalized_as_of)
+        yesterday = local_today - timedelta(days=1)
+
+        yesterday_sessions = await self._repo.list_completed_sessions_for_date(chat_id=chat_id, local_date=yesterday)
+        today_sessions = await self._repo.list_completed_sessions_for_date(chat_id=chat_id, local_date=local_today)
+
+        yesterday_summaries = [
+            session.summary_text.strip()
+            for session in yesterday_sessions
+            if session.summary_text and session.summary_text.strip()
+        ]
+        today_summaries = [
+            session.summary_text.strip()
+            for session in today_sessions
+            if session.summary_text and session.summary_text.strip()
+        ]
+
+        open_session = await self._repo.get_open_session(chat_id)
+        if open_session is not None and open_session.local_date == local_today:
+            messages = list(await self._repo.list_session_messages(open_session.id))
+            if messages:
+                preview_summary = await self._summary_generator.generate_session_summary(
+                    started_at_utc=open_session.started_at_utc,
+                    completed_at_utc=normalized_as_of,
+                    messages=messages,
+                )
+                normalized_preview = self._normalize_summary_text(preview_summary)
+                if normalized_preview:
+                    today_summaries.append(normalized_preview)
+
+        return EveningSummaryContext(
+            yesterday_date=yesterday,
+            today_date=local_today,
+            yesterday_summaries=yesterday_summaries,
+            today_summaries=today_summaries,
+        )
 
     def _local_date(self, value: datetime) -> date:
         return value.astimezone(self._tz).date()

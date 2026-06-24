@@ -95,7 +95,31 @@ async def execute_scheduler_job(
     if job_type != "good_night_and_activity":
         raise ValueError(f"Unsupported scheduler job type: {job_type}")
 
-    await _send_message(format_good_night())
+    fallback_message = format_good_night()
+    if ai_service is None or session_memory_service is None:
+        await _send_message(fallback_message)
+    else:
+        try:
+            evening_context = await session_memory_service.get_evening_summaries(
+                chat_id=chat_id,
+                as_of_utc=now_utc or datetime.now(timezone.utc),
+            )
+            if not evening_context.yesterday_summaries and not evening_context.today_summaries:
+                await _send_message(fallback_message)
+            else:
+                greeting = await ai_service.generate_evening_greeting(
+                    yesterday_date=evening_context.yesterday_date,
+                    today_date=evening_context.today_date,
+                    yesterday_summaries=evening_context.yesterday_summaries,
+                    today_summaries=evening_context.today_summaries,
+                )
+                await _send_message(greeting)
+        except Exception:
+            logging.getLogger("scheduler").exception(
+                "Falling back to static evening message for chat %s after summary-aware generation failed.",
+                chat_id,
+            )
+            await _send_message(fallback_message)
     if not config.enable_activity_tracking:
         return
     today = activity_service.local_date_for(now_utc)

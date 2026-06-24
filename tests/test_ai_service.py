@@ -151,3 +151,25 @@ async def test_generate_morning_greeting_uses_summary_context():
     assert client.last_user_prompt is not None
     assert "2026-06-23" in client.last_user_prompt
     assert "прогулку с Малышом" in client.last_user_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_evening_greeting_uses_yesterday_and_today_summaries():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    summary = await service.generate_evening_greeting(
+        yesterday_date=date.fromisoformat("2026-06-23"),
+        today_date=date.fromisoformat("2026-06-24"),
+        yesterday_summaries=["Вчера говорили про планы на утро."],
+        today_summaries=["Сегодня успели сходить по делам и вспомнить про Малыша."],
+    )
+
+    assert summary == "Общая сводка по всем городам готова."
+    assert client.last_system_prompt is not None
+    assert "вечернее сообщение" in client.last_system_prompt
+    assert "1-3 уместных эмодзи" in client.last_system_prompt
+    assert client.last_user_prompt is not None
+    assert "2026-06-23" in client.last_user_prompt
+    assert "2026-06-24" in client.last_user_prompt
+    assert "вспомнить про Малыша" in client.last_user_prompt

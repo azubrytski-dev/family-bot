@@ -385,3 +385,72 @@ async def test_get_test_morning_summaries_uses_open_session_preview_when_yesterd
 
     assert context.local_date == date(2026, 6, 24)
     assert context.summaries == ["Сегодня обсуждали планы на утро и домашние дела."]
+
+
+@pytest.mark.asyncio
+async def test_get_evening_summaries_combines_yesterday_today_and_open_preview() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator(response="Ещё успели обсудить вечерние дела.")
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 23),
+        started_at_utc=datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="Вчера обсуждали планы на завтра.",
+    )
+    repo.sessions[2] = ChatSession(
+        id=2,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="Сегодня уже сходили по делам.",
+    )
+    repo.sessions[3] = ChatSession(
+        id=3,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 15, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 21, 0, tzinfo=timezone.utc),
+        completed_at_utc=None,
+        status="open",
+        message_count=1,
+        summary_text=None,
+    )
+    repo.messages[3] = [
+        SessionMessage(
+            id=1,
+            session_id=3,
+            chat_id=10,
+            telegram_message_id=101,
+            user_id=501,
+            username="andrei",
+            display_name="Andrei",
+            message_text="Ещё надо не забыть про вечернюю прогулку.",
+            message_ts_utc=datetime(2026, 6, 24, 16, 0, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        )
+    ]
+
+    context = await service.get_evening_summaries(
+        chat_id=10,
+        as_of_utc=datetime(2026, 6, 24, 18, 0, tzinfo=timezone.utc),
+    )
+
+    assert context.yesterday_date == date(2026, 6, 23)
+    assert context.today_date == date(2026, 6, 24)
+    assert context.yesterday_summaries == ["Вчера обсуждали планы на завтра."]
+    assert context.today_summaries == [
+        "Сегодня уже сходили по делам.",
+        "Ещё успели обсудить вечерние дела.",
+    ]

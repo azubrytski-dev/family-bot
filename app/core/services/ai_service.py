@@ -190,3 +190,34 @@ class AiService:
             "Сформулируй одно короткое утреннее сообщение для семьи."
         )
         return await self._call_messages_with_fallback(system_prompt, user_prompt)
+
+    async def generate_evening_greeting(
+        self,
+        *,
+        yesterday_date: date,
+        today_date: date,
+        yesterday_summaries: Sequence[str],
+        today_summaries: Sequence[str],
+    ) -> str:
+        yesterday_lines = "\n".join(f"- {summary}" for summary in yesterday_summaries) or "- нет сводок"
+        today_lines = "\n".join(f"- {summary}" for summary in today_summaries) or "- нет сводок"
+        system_prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Ты готовишь короткое вечернее сообщение для семейного Telegram-чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Опирайся на сводки за вчера и за сегодня.\n"
+            "Тон должен быть тёплым, спокойным, семейным и естественным.\n"
+            "Добавь 1-3 уместных эмодзи, если они делают сообщение теплее и живее.\n"
+            "Не перегружай сообщение эмодзи.\n"
+            "Можно коротко упомянуть, как прошёл день, и пожелать спокойной ночи или хорошего вечера.\n"
+            "Если есть неприятные или тяжёлые события, не повторяй болезненные детали и не драматизируй.\n"
+            "Ответ должен быть компактным, примерно 1-3 коротких предложения.\n"
+        )
+        user_prompt = (
+            f"Дата вчерашних сводок: {yesterday_date.isoformat()}\n"
+            f"Вчерашние сводки:\n{yesterday_lines}\n\n"
+            f"Дата сегодняшних сводок: {today_date.isoformat()}\n"
+            f"Сегодняшние сводки:\n{today_lines}\n\n"
+            "Сформулируй одно короткое вечернее сообщение для семьи."
+        )
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)

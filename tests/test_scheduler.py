@@ -10,7 +10,7 @@ from app.bot.scheduler import execute_scheduler_job, setup_scheduler
 from app.core.config import AppConfig
 from app.core.models import SchedulerJob
 from app.core.services.activity_service import ActivityService
-from app.core.services.session_memory_service import MorningSummaryContext
+from app.core.services.session_memory_service import EveningSummaryContext, MorningSummaryContext
 
 
 class DummyBot:
@@ -74,25 +74,61 @@ class StubWeatherService:
 class StubAiService:
     def __init__(self) -> None:
         self.morning_reply = "Доброе утро! Пусть день будет спокойным и хорошим."
+        self.evening_reply = "Спокойного вечера 🌙 Пусть ночь будет тёплой и спокойной."
         self.last_summary_date: date | None = None
         self.last_summaries: list[str] | None = None
+        self.last_evening_yesterday_date: date | None = None
+        self.last_evening_today_date: date | None = None
+        self.last_evening_yesterday_summaries: list[str] | None = None
+        self.last_evening_today_summaries: list[str] | None = None
 
     async def generate_morning_greeting(self, *, summary_date: date, summaries: list[str]) -> str:
         self.last_summary_date = summary_date
         self.last_summaries = list(summaries)
         return self.morning_reply
 
+    async def generate_evening_greeting(
+        self,
+        *,
+        yesterday_date: date,
+        today_date: date,
+        yesterday_summaries: list[str],
+        today_summaries: list[str],
+    ) -> str:
+        self.last_evening_yesterday_date = yesterday_date
+        self.last_evening_today_date = today_date
+        self.last_evening_yesterday_summaries = list(yesterday_summaries)
+        self.last_evening_today_summaries = list(today_summaries)
+        return self.evening_reply
+
 
 class FailingAiService(StubAiService):
     async def generate_morning_greeting(self, *, summary_date: date, summaries: list[str]) -> str:
+        raise RuntimeError("ai failed")
+
+    async def generate_evening_greeting(
+        self,
+        *,
+        yesterday_date: date,
+        today_date: date,
+        yesterday_summaries: list[str],
+        today_summaries: list[str],
+    ) -> str:
         raise RuntimeError("ai failed")
 
 
 class StubSessionMemoryService:
     def __init__(self, context: MorningSummaryContext | None = None) -> None:
         self.context = context or MorningSummaryContext(local_date=date(2026, 6, 23), summaries=[])
+        self.evening_context = EveningSummaryContext(
+            yesterday_date=date(2026, 6, 23),
+            today_date=date(2026, 6, 24),
+            yesterday_summaries=[],
+            today_summaries=[],
+        )
         self.calls: list[tuple[int, datetime | None]] = []
         self.test_calls: list[tuple[int, datetime | None]] = []
+        self.evening_calls: list[tuple[int, datetime | None]] = []
         self.bot_replies: list[dict[str, object]] = []
 
     async def get_yesterday_completed_summaries(
@@ -112,6 +148,15 @@ class StubSessionMemoryService:
     ) -> MorningSummaryContext:
         self.test_calls.append((chat_id, as_of_utc))
         return self.context
+
+    async def get_evening_summaries(
+        self,
+        *,
+        chat_id: int,
+        as_of_utc: datetime | None = None,
+    ) -> EveningSummaryContext:
+        self.evening_calls.append((chat_id, as_of_utc))
+        return self.evening_context
 
     async def record_bot_reply(
         self,
@@ -412,6 +457,14 @@ async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monk
             return {100: "Active User", 101: "Inactive User"}
 
     activity_service = ActivityService(InactiveLabelRepo(), tz_name="Europe/Minsk")  # type: ignore[arg-type]
+    ai_service = StubAiService()
+    session_memory_service = StubSessionMemoryService()
+    session_memory_service.evening_context = EveningSummaryContext(
+        yesterday_date=date(2026, 6, 23),
+        today_date=date(2026, 6, 24),
+        yesterday_summaries=["Вчера обсуждали планы на сегодня."],
+        today_summaries=["Сегодня уже много успели и вечером созвонились."],
+    )
 
     await execute_scheduler_job(
         "good_night_and_activity",
@@ -420,13 +473,69 @@ async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monk
         cfg,
         activity_service,
         weather_service,
+        ai_service,  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
         now_utc=datetime(2026, 6, 23, 21, 30, tzinfo=timezone.utc),
     )  # type: ignore[arg-type]
 
-    assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
+    assert bot.sent_messages[0] == (321, "Спокойного вечера 🌙 Пусть ночь будет тёплой и спокойной.")
     assert "24.06.2026" in bot.sent_messages[1][1]
     assert "Inactive User" in bot.sent_messages[1][1]
     assert "id:101" not in bot.sent_messages[1][1]
+    assert ai_service.last_evening_yesterday_date == date(2026, 6, 23)
+    assert ai_service.last_evening_today_date == date(2026, 6, 24)
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_falls_back_for_evening_without_summaries(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    weather_service = StubWeatherService()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    session_memory_service = StubSessionMemoryService()
+
+    await execute_scheduler_job(
+        "good_night_and_activity",
+        bot,
+        321,
+        cfg,
+        activity_service,
+        weather_service,
+        StubAiService(),  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
+        now_utc=datetime(2026, 6, 24, 21, 30, tzinfo=timezone.utc),
+    )
+
+    assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_falls_back_for_evening_when_ai_fails(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    weather_service = StubWeatherService()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    session_memory_service = StubSessionMemoryService()
+    session_memory_service.evening_context = EveningSummaryContext(
+        yesterday_date=date(2026, 6, 23),
+        today_date=date(2026, 6, 24),
+        yesterday_summaries=["Вчера всё было спокойно."],
+        today_summaries=["Сегодня день был насыщенным."],
+    )
+
+    await execute_scheduler_job(
+        "good_night_and_activity",
+        bot,
+        321,
+        cfg,
+        activity_service,
+        weather_service,
+        FailingAiService(),  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
+        now_utc=datetime(2026, 6, 24, 21, 30, tzinfo=timezone.utc),
+    )
+
+    assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
 
 
 @pytest.mark.asyncio
