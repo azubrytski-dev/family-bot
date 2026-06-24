@@ -30,53 +30,78 @@ async def execute_scheduler_job(
     ai_service: AiService | None = None,
     session_memory_service: SessionMemoryService | None = None,
     now_utc: datetime | None = None,
+    track_bot_replies: bool = False,
+    bot_username: str | None = None,
+    use_test_morning_context: bool = False,
 ) -> None:
+    async def _send_message(text: str) -> None:
+        sent_message = await bot.send_message(chat_id, text)
+        if not track_bot_replies or session_memory_service is None:
+            return
+        sent_message_id = getattr(sent_message, "message_id", None)
+        if sent_message_id is None:
+            return
+        sent_message_ts = getattr(sent_message, "date", None) or (now_utc or datetime.now(timezone.utc))
+        await session_memory_service.record_bot_reply(
+            chat_id=chat_id,
+            telegram_message_id=sent_message_id,
+            message_text=text,
+            message_ts_utc=sent_message_ts,
+            bot_username=bot_username,
+        )
+
     if job_type == "good_morning":
         fallback_message = format_good_morning()
         if ai_service is None or session_memory_service is None:
-            await bot.send_message(chat_id, fallback_message)
+            await _send_message(fallback_message)
             return
         try:
-            morning_context = await session_memory_service.get_yesterday_completed_summaries(
-                chat_id=chat_id,
-                as_of_utc=now_utc or datetime.now(timezone.utc),
-            )
+            if use_test_morning_context:
+                morning_context = await session_memory_service.get_test_morning_summaries(
+                    chat_id=chat_id,
+                    as_of_utc=now_utc or datetime.now(timezone.utc),
+                )
+            else:
+                morning_context = await session_memory_service.get_yesterday_completed_summaries(
+                    chat_id=chat_id,
+                    as_of_utc=now_utc or datetime.now(timezone.utc),
+                )
             if not morning_context.summaries:
-                await bot.send_message(chat_id, fallback_message)
+                await _send_message(fallback_message)
                 return
             greeting = await ai_service.generate_morning_greeting(
                 summary_date=morning_context.local_date,
                 summaries=morning_context.summaries,
             )
-            await bot.send_message(chat_id, greeting)
+            await _send_message(greeting)
         except Exception:
             logging.getLogger("scheduler").exception(
                 "Falling back to static morning message for chat %s after summary-aware generation failed.",
                 chat_id,
             )
-            await bot.send_message(chat_id, fallback_message)
+            await _send_message(fallback_message)
         return
 
     if job_type == "weather_morning":
-        await bot.send_message(chat_id, await weather_service.build_morning_forecast_summary())
+        await _send_message(await weather_service.build_morning_forecast_summary())
         return
 
     if job_type == "weather_alert_check":
         alerts = await weather_service.build_severe_weather_alerts()
         for alert in alerts:
-            await bot.send_message(chat_id, alert)
+            await _send_message(alert)
         return
 
     if job_type != "good_night_and_activity":
         raise ValueError(f"Unsupported scheduler job type: {job_type}")
 
-    await bot.send_message(chat_id, format_good_night())
+    await _send_message(format_good_night())
     if not config.enable_activity_tracking:
         return
-    today = date.today()
+    today = activity_service.local_date_for(now_utc)
     inactive_labels = await activity_service.get_inactive_user_labels(chat_id, today)
     summary = format_activity_summary(today, inactive_labels)
-    await bot.send_message(chat_id, summary)
+    await _send_message(summary)
 
 
 async def setup_scheduler(

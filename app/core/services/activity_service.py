@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Iterable, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+DEFAULT_TZ_NAME = "Europe/Minsk"
 
 
 class ActivityRepository(Protocol):
@@ -10,6 +14,7 @@ class ActivityRepository(Protocol):
         chat_id: int,
         user_id: int,
         message_ts: datetime,
+        activity_date: date,
         username: str | None,
         display_name: str | None,
     ) -> None: ...
@@ -22,8 +27,9 @@ class ActivityRepository(Protocol):
 
 
 class ActivityService:
-    def __init__(self, repo: ActivityRepository) -> None:
+    def __init__(self, repo: ActivityRepository, tz_name: str = DEFAULT_TZ_NAME) -> None:
         self._repo = repo
+        self._tz = _resolve_timezone(tz_name)
 
     async def record_message(
         self,
@@ -33,10 +39,12 @@ class ActivityService:
         username: str | None,
         display_name: str | None,
     ) -> None:
+        normalized_ts = _normalize_utc(message_ts)
         await self._repo.increment_message_count(
             chat_id=chat_id,
             user_id=user_id,
-            message_ts=message_ts,
+            message_ts=normalized_ts,
+            activity_date=self._local_date(normalized_ts),
             username=username,
             display_name=display_name,
         )
@@ -52,3 +60,23 @@ class ActivityService:
         inactive_user_ids = await self.get_inactive_users(chat_id, day)
         labels = await self._repo.get_chat_member_labels(chat_id)
         return [labels.get(user_id, f"id:{user_id}") for user_id in inactive_user_ids]
+
+    def local_date_for(self, value: datetime | None = None) -> date:
+        normalized = _normalize_utc(value or datetime.now(timezone.utc))
+        return self._local_date(normalized)
+
+    def _local_date(self, value: datetime) -> date:
+        return value.astimezone(self._tz).date()
+
+
+def _resolve_timezone(tz_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo(DEFAULT_TZ_NAME)
+
+
+def _normalize_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

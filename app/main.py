@@ -109,7 +109,7 @@ async def main() -> None:
         scheduler_job_repo = PgSchedulerJobRepository(config.postgres_url)
         session_memory_repo = PgSessionMemoryRepository(config.postgres_url)
 
-        activity_service = ActivityService(repo=activity_repo)
+        activity_service = ActivityService(repo=activity_repo, tz_name=config.tz_name)
         chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
 
         openai_client = OpenAIClient(

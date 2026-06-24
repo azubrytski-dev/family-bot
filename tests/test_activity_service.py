@@ -15,15 +15,15 @@ class InMemoryRepo:
         chat_id: int,
         user_id: int,
         message_ts: datetime,
+        activity_date: date,
         username: str | None,
         display_name: str | None,
     ) -> None:
-        day = message_ts.date()
         self.members[(chat_id, user_id)] = {
             "username": username,
             "display_name": display_name,
         }
-        key = (chat_id, user_id, day)
+        key = (chat_id, user_id, activity_date)
         self.activity[key] = self.activity.get(key, 0) + 1
 
     async def get_today_activity(self, chat_id: int, day: date) -> dict[int, int]:
@@ -90,3 +90,15 @@ async def test_inactive_user_labels_prefer_display_name():
     inactive = await service.get_inactive_user_labels(chat_id, today)
 
     assert inactive == ["User 101", "User 102", "id:103"]
+
+
+@pytest.mark.asyncio
+async def test_record_message_uses_minsk_local_date_for_activity_bucket():
+    repo = InMemoryRepo()
+    service = ActivityService(repo, tz_name="Europe/Minsk")
+
+    ts = datetime(2026, 6, 22, 22, 30, tzinfo=timezone.utc)
+
+    await service.record_message(1, 100, ts, "user100", "User 100")
+
+    assert (1, 100, date(2026, 6, 23)) in repo.activity

@@ -170,6 +170,46 @@ class SessionMemoryService:
         summaries = [session.summary_text.strip() for session in sessions if session.summary_text and session.summary_text.strip()]
         return MorningSummaryContext(local_date=yesterday, summaries=summaries)
 
+    async def get_test_morning_summaries(
+        self,
+        *,
+        chat_id: int,
+        as_of_utc: datetime | None = None,
+    ) -> MorningSummaryContext:
+        normalized_as_of = _normalize_utc(as_of_utc or datetime.now(timezone.utc))
+        yesterday_context = await self.get_yesterday_completed_summaries(
+            chat_id=chat_id,
+            as_of_utc=normalized_as_of,
+        )
+        if yesterday_context.summaries:
+            return yesterday_context
+
+        local_today = self._local_date(normalized_as_of)
+        today_sessions = await self._repo.list_completed_sessions_for_date(chat_id=chat_id, local_date=local_today)
+        today_summaries = [
+            session.summary_text.strip()
+            for session in today_sessions
+            if session.summary_text and session.summary_text.strip()
+        ]
+        if today_summaries:
+            return MorningSummaryContext(local_date=local_today, summaries=today_summaries)
+
+        open_session = await self._repo.get_open_session(chat_id)
+        if open_session is None:
+            return MorningSummaryContext(local_date=local_today, summaries=[])
+
+        messages = list(await self._repo.list_session_messages(open_session.id))
+        if not messages:
+            return MorningSummaryContext(local_date=local_today, summaries=[])
+
+        preview_summary = await self._summary_generator.generate_session_summary(
+            started_at_utc=open_session.started_at_utc,
+            completed_at_utc=normalized_as_of,
+            messages=messages,
+        )
+        normalized_summary = self._normalize_summary_text(preview_summary)
+        return MorningSummaryContext(local_date=local_today, summaries=[normalized_summary])
+
     def _local_date(self, value: datetime) -> date:
         return value.astimezone(self._tz).date()
 

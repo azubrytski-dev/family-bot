@@ -43,11 +43,16 @@ class DummyMessage:
 
     async def answer(self, text: str) -> None:
         self.answers.append(text)
+        return SimpleNamespace(message_id=900 + len(self.answers), date=SimpleNamespace())
 
 
 class DummySessionMemoryService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.recorded_messages: list[dict[str, object]] = []
+
+    async def record_message(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.recorded_messages.append(kwargs)
 
     async def record_bot_reply(
         self,
@@ -201,6 +206,7 @@ def test_test_command_action_ignores_empty_text():
 async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.MonkeyPatch):
     message = DummyMessage()
     weather_service = DummyWeatherService("В Минске прохладно.")
+    session_memory_service = DummySessionMemoryService()
 
     handled = await _handle_test_command(
         action="weather_test",
@@ -211,13 +217,17 @@ async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.M
         ai_service=DummyAiService(),  # type: ignore[arg-type]
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
-        session_memory_service=None,
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+        bot_username="family_bot",
         logger=logging.getLogger("test"),
     )
 
     assert handled is True
     assert weather_service.calls == 1
     assert message.answers == ["В Минске прохладно."]
+    assert session_memory_service.recorded_messages == []
+    assert session_memory_service.calls[0]["message_text"] == "В Минске прохладно."
+    assert session_memory_service.calls[0]["bot_username"] == "family_bot"
 
 
 @pytest.mark.asyncio
@@ -235,6 +245,7 @@ async def test_handle_test_command_rejects_when_test_commands_disabled(monkeypat
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=False),  # type: ignore[arg-type]
         session_memory_service=None,
+        bot_username="family_bot",
         logger=logging.getLogger("test"),
     )
 

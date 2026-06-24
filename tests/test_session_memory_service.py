@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+from typing import Sequence
 
 import pytest
 
@@ -133,7 +134,7 @@ class DummySummaryGenerator:
         *,
         started_at_utc: datetime,
         completed_at_utc: datetime,
-        messages: list[SessionMessage],
+        messages: Sequence[SessionMessage],
     ) -> str:
         self.calls.append((started_at_utc, completed_at_utc, list(messages)))
         return self.response
@@ -315,3 +316,72 @@ async def test_get_yesterday_completed_summaries_uses_local_date_and_completed_s
 
     assert context.local_date == date(2026, 6, 23)
     assert context.summaries == ["Вчера обсуждали планы и прогулку с Малышом."]
+
+
+@pytest.mark.asyncio
+async def test_get_yesterday_completed_summaries_uses_minsk_day_boundary() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 23),
+        started_at_utc=datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="В Минске это ещё вчерашняя сводка.",
+    )
+
+    context = await service.get_yesterday_completed_summaries(
+        chat_id=10,
+        as_of_utc=datetime(2026, 6, 23, 21, 30, tzinfo=timezone.utc),
+    )
+
+    assert context.local_date == date(2026, 6, 23)
+    assert context.summaries == ["В Минске это ещё вчерашняя сводка."]
+
+
+@pytest.mark.asyncio
+async def test_get_test_morning_summaries_uses_open_session_preview_when_yesterday_is_empty() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator(response="Сегодня обсуждали планы на утро и домашние дела.")
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 20, 0, tzinfo=timezone.utc),
+        completed_at_utc=None,
+        status="open",
+        message_count=2,
+        summary_text=None,
+    )
+    repo.messages[1] = [
+        SessionMessage(
+            id=1,
+            session_id=1,
+            chat_id=10,
+            telegram_message_id=101,
+            user_id=501,
+            username="andrei",
+            display_name="Andrei",
+            message_text="Надо завтра встать пораньше.",
+            message_ts_utc=datetime(2026, 6, 24, 15, 0, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        )
+    ]
+
+    context = await service.get_test_morning_summaries(
+        chat_id=10,
+        as_of_utc=datetime(2026, 6, 24, 18, 0, tzinfo=timezone.utc),
+    )
+
+    assert context.local_date == date(2026, 6, 24)
+    assert context.summaries == ["Сегодня обсуждали планы на утро и домашние дела."]

@@ -19,6 +19,7 @@ class DummyBot:
 
     async def send_message(self, chat_id: int, text: str) -> None:
         self.sent_messages.append((chat_id, text))
+        return type("SentMessage", (), {"message_id": 1000 + len(self.sent_messages), "date": datetime(2026, 6, 24, 5, 0, tzinfo=timezone.utc)})()
 
 
 class ScheduledJobRecord(TypedDict):
@@ -45,7 +46,7 @@ class InMemorySchedulerJobRepo:
 
 
 class InMemoryActivityRepo:
-    async def increment_message_count(self, chat_id, user_id, message_ts, username, display_name):  # type: ignore[no-untyped-def]
+    async def increment_message_count(self, chat_id, user_id, message_ts, activity_date, username, display_name):  # type: ignore[no-untyped-def]
         return None
 
     async def get_today_activity(self, chat_id, day):  # type: ignore[no-untyped-def]
@@ -91,6 +92,8 @@ class StubSessionMemoryService:
     def __init__(self, context: MorningSummaryContext | None = None) -> None:
         self.context = context or MorningSummaryContext(local_date=date(2026, 6, 23), summaries=[])
         self.calls: list[tuple[int, datetime | None]] = []
+        self.test_calls: list[tuple[int, datetime | None]] = []
+        self.bot_replies: list[dict[str, object]] = []
 
     async def get_yesterday_completed_summaries(
         self,
@@ -100,6 +103,34 @@ class StubSessionMemoryService:
     ) -> MorningSummaryContext:
         self.calls.append((chat_id, as_of_utc))
         return self.context
+
+    async def get_test_morning_summaries(
+        self,
+        *,
+        chat_id: int,
+        as_of_utc: datetime | None = None,
+    ) -> MorningSummaryContext:
+        self.test_calls.append((chat_id, as_of_utc))
+        return self.context
+
+    async def record_bot_reply(
+        self,
+        *,
+        chat_id: int,
+        telegram_message_id: int,
+        message_text: str,
+        message_ts_utc: datetime,
+        bot_username: str | None,
+    ) -> None:
+        self.bot_replies.append(
+            {
+                "chat_id": chat_id,
+                "telegram_message_id": telegram_message_id,
+                "message_text": message_text,
+                "message_ts_utc": message_ts_utc,
+                "bot_username": bot_username,
+            }
+        )
 
 
 def _make_config(monkeypatch) -> AppConfig:
@@ -298,6 +329,73 @@ async def test_execute_scheduler_job_falls_back_for_morning_when_ai_fails(monkey
 
 
 @pytest.mark.asyncio
+async def test_execute_scheduler_job_tracks_bot_replies_only_when_requested(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+    session_memory_service = StubSessionMemoryService()
+
+    await execute_scheduler_job(
+        "weather_morning",
+        bot,
+        321,
+        cfg,
+        activity_service,
+        weather_service,
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+        track_bot_replies=True,
+        bot_username="family_bot",
+    )
+
+    assert bot.sent_messages == [(321, "Погода утром готова.")]
+    assert session_memory_service.bot_replies == [
+        {
+            "chat_id": 321,
+            "telegram_message_id": 1001,
+            "message_text": "Погода утром готова.",
+            "message_ts_utc": datetime(2026, 6, 24, 5, 0, tzinfo=timezone.utc),
+            "bot_username": "family_bot",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_uses_test_morning_context_when_requested(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+    ai_service = StubAiService()
+    session_memory_service = StubSessionMemoryService(
+        MorningSummaryContext(
+            local_date=date(2026, 6, 24),
+            summaries=["Сегодня уже обсуждали планы на завтрашнее утро."],
+        )
+    )
+    now_utc = datetime(2026, 6, 24, 18, 0, tzinfo=timezone.utc)
+
+    await execute_scheduler_job(
+        "good_morning",
+        bot,
+        321,
+        cfg,
+        activity_service,
+        weather_service,
+        ai_service,  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
+        now_utc,
+        False,
+        None,
+        True,
+    )
+
+    assert session_memory_service.calls == []
+    assert session_memory_service.test_calls == [(321, now_utc)]
+    assert ai_service.last_summary_date == date(2026, 6, 24)
+
+
+@pytest.mark.asyncio
 async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monkeypatch):
     cfg = _make_config(monkeypatch)
     bot = DummyBot()
@@ -313,11 +411,20 @@ async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monk
         async def get_chat_member_labels(self, chat_id):  # type: ignore[no-untyped-def]
             return {100: "Active User", 101: "Inactive User"}
 
-    activity_service = ActivityService(InactiveLabelRepo())  # type: ignore[arg-type]
+    activity_service = ActivityService(InactiveLabelRepo(), tz_name="Europe/Minsk")  # type: ignore[arg-type]
 
-    await execute_scheduler_job("good_night_and_activity", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
+    await execute_scheduler_job(
+        "good_night_and_activity",
+        bot,
+        321,
+        cfg,
+        activity_service,
+        weather_service,
+        now_utc=datetime(2026, 6, 23, 21, 30, tzinfo=timezone.utc),
+    )  # type: ignore[arg-type]
 
     assert bot.sent_messages[0] == (321, "Спокойной ночи, зубры 😴 Пусть завтра будет ещё лучше, чем сегодня.")
+    assert "24.06.2026" in bot.sent_messages[1][1]
     assert "Inactive User" in bot.sent_messages[1][1]
     assert "id:101" not in bot.sent_messages[1][1]
 

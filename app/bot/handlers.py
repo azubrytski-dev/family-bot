@@ -110,6 +110,7 @@ async def _handle_test_command(
     weather_service: WeatherService,
     chat_registry: ChatRegistryService,
     session_memory_service: SessionMemoryService | None,
+    bot_username: str | None,
     logger: logging.Logger,
 ) -> bool:
     if not await chat_registry.is_chat_test_allowed(message.chat.id):
@@ -118,7 +119,19 @@ async def _handle_test_command(
         return True
 
     if action == "weather_test":
-        await message.answer(await weather_service.build_morning_forecast_summary())
+        reply_text = await weather_service.build_morning_forecast_summary()
+        sent_message = await message.answer(reply_text)
+        if session_memory_service is not None:
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if sent_message_id is not None:
+                sent_message_ts = getattr(sent_message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_bot_reply(
+                    chat_id=message.chat.id,
+                    telegram_message_id=sent_message_id,
+                    message_text=reply_text,
+                    message_ts_utc=sent_message_ts,
+                    bot_username=bot_username,
+                )
         return True
 
     await execute_scheduler_job(
@@ -130,6 +143,9 @@ async def _handle_test_command(
         weather_service=weather_service,
         ai_service=ai_service,
         session_memory_service=session_memory_service,
+        track_bot_replies=True,
+        bot_username=bot_username,
+        use_test_morning_context=(action == "good_morning"),
     )
     return True
 
@@ -231,6 +247,7 @@ def setup_handlers(
                 weather_service=weather_service,
                 chat_registry=chat_registry,
                 session_memory_service=session_memory_service,
+                bot_username=bot_username,
                 logger=logger,
             )
             if handled:

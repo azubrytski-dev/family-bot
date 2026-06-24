@@ -146,6 +146,7 @@ async def test_generate_morning_greeting_uses_summary_context():
     assert summary == "Общая сводка по всем городам готова."
     assert client.last_system_prompt is not None
     assert "доброе утреннее сообщение" in client.last_system_prompt
+    assert "1-3 уместных эмодзи" in client.last_system_prompt
     assert "не драматизируй" in client.last_system_prompt
     assert client.last_user_prompt is not None
     assert "2026-06-23" in client.last_user_prompt

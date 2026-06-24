@@ -174,6 +174,7 @@ async def test_pg_activity_repo(test_database_url: str):
         chat_id=test_chat_id,
         user_id=test_user_id,
         message_ts=now,
+        activity_date=today,
         username="testuser",
         display_name="Test User",
     )

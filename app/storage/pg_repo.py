@@ -40,6 +40,7 @@ class PgActivityRepository(ActivityRepository):
         chat_id: int,
         user_id: int,
         message_ts: datetime,
+        activity_date: date,
         username: str | None,
         display_name: str | None,
     ) -> None:
@@ -66,7 +67,7 @@ class PgActivityRepository(ActivityRepository):
                         last_message_date = EXCLUDED.last_message_date,
                         updated_at = NOW()
                     """,
-                    (chat_id, user_id, username, display_name, message_ts, message_ts.date()),
+                    (chat_id, user_id, username, display_name, message_ts, activity_date),
                 )
                 # Also update daily_activity
                 await cur.execute(
@@ -77,7 +78,7 @@ class PgActivityRepository(ActivityRepository):
                     DO UPDATE SET message_count = daily_activity.message_count + 1,
                                   last_message_ts = EXCLUDED.last_message_ts
                     """,
-                    (chat_id, user_id, message_ts.date(), message_ts),
+                    (chat_id, user_id, activity_date, message_ts),
                 )
 
     async def get_today_activity(self, chat_id: int, day: date) -> dict[int, int]:
