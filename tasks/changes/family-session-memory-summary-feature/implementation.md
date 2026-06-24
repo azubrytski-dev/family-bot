@@ -18,7 +18,7 @@
   - Only plain text messages are stored for memory in this step; captions and non-text content are ignored.
   - Personal bot replies should use recent archived summaries plus the current open-session transcript, without introducing a separate long-term raw-message store for completed sessions.
 - Risks to watch:
-  - Session completion is currently triggered during message recording, so idle chats will need a later scheduled completion path if no new messages arrive after expiry.
+  - Session completion now runs both on message ingestion and via an internal scheduler housekeeping pass, which reduces idle-chat gaps but still relies on the process scheduler being alive.
   - Morning generation now forces an expired-session completion pass before reading yesterday's summaries, which is good for freshness but still depends on the same repository/archive path succeeding.
   - Evening generation now previews the current open session when today's context is not fully archived yet, which improves relevance but means the evening message may reflect transient same-day context.
   - Personal replies now depend on the same current-session transcript and archived-summary paths, so failures in session reads should keep falling back to the old inline mention context instead of breaking bot replies.
@@ -33,3 +33,10 @@
   - `tests/test_handlers.py`
 - Commands to run:
   - `uv run pytest`
+- Deterministic coverage now includes:
+  - session completion after the 6-hour TTL boundary;
+  - raw-message deletion after successful archive;
+  - raw-message retention when summary generation fails before archive;
+  - internal housekeeping completion for idle expired sessions;
+  - reply-to-bot flag capture and reply-context shaping;
+  - morning and evening prompt composition against archived summaries.

@@ -140,6 +140,17 @@ class DummySummaryGenerator:
         return self.response
 
 
+class FailingSummaryGenerator:
+    async def generate_session_summary(
+        self,
+        *,
+        started_at_utc: datetime,
+        completed_at_utc: datetime,
+        messages: Sequence[SessionMessage],
+    ) -> str:
+        raise RuntimeError("summary generation failed")
+
+
 @pytest.mark.asyncio
 async def test_record_message_creates_session_and_trims_text() -> None:
     repo = InMemorySessionRepo()
@@ -264,6 +275,38 @@ async def test_record_message_completes_expired_session_before_creating_next_one
     assert second_session.id == 2
     messages = await repo.list_session_messages(second_session.id)
     assert [message.telegram_message_id for message in messages] == [2]
+
+
+@pytest.mark.asyncio
+async def test_complete_expired_sessions_keeps_raw_messages_when_summary_generation_fails() -> None:
+    repo = InMemorySessionRepo()
+    service = SessionMemoryService(
+        repo=repo,
+        summary_generator=FailingSummaryGenerator(),
+        tz_name="Europe/Minsk",
+    )
+
+    start_ts = datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc)
+    await service.record_message(
+        chat_id=10,
+        telegram_message_id=1,
+        user_id=501,
+        username="andrei",
+        display_name="Andrei",
+        message_text="Собираемся в поездку.",
+        message_ts_utc=start_ts,
+        is_reply_to_bot=False,
+    )
+
+    with pytest.raises(RuntimeError, match="summary generation failed"):
+        await service.complete_expired_sessions(as_of_utc=start_ts + SESSION_TTL + timedelta(minutes=1))
+
+    session = repo.sessions[1]
+    assert session.status == "open"
+    assert session.summary_text is None
+    messages = await repo.list_session_messages(1)
+    assert len(messages) == 1
+    assert messages[0].message_text == "Собираемся в поездку."
 
 
 @pytest.mark.asyncio

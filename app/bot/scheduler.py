@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from pytz import timezone as tz
 
 from app.bot.formatting import format_activity_summary, format_good_morning, format_good_night
@@ -18,6 +19,8 @@ from app.storage.repo import SchedulerJobRepository
 
 
 SUPPORTED_JOB_TYPES = {"good_morning", "good_night_and_activity", "weather_morning", "weather_alert_check"}
+SESSION_EXPIRY_JOB_NAME = "session_memory_expiry"
+SESSION_EXPIRY_INTERVAL_MINUTES = 60
 
 
 async def execute_scheduler_job(
@@ -128,6 +131,16 @@ async def execute_scheduler_job(
     await _send_message(summary)
 
 
+async def execute_session_expiry_job(session_memory_service: SessionMemoryService) -> None:
+    logger = logging.getLogger("scheduler")
+    completed_sessions = await session_memory_service.complete_expired_sessions()
+    if completed_sessions:
+        logger.info(
+            "Completed %s expired chat session(s) during housekeeping run.",
+            len(completed_sessions),
+        )
+
+
 async def setup_scheduler(
     scheduler: AsyncIOScheduler,
     bot: Bot,
@@ -145,9 +158,22 @@ async def setup_scheduler(
         logger.info("Scheduled jobs disabled via ENABLE_SCHEDULER.")
         return
 
+    scheduler.add_job(
+        execute_session_expiry_job,
+        IntervalTrigger(minutes=SESSION_EXPIRY_INTERVAL_MINUTES, timezone=tz(config.tz_name)),
+        args=[session_memory_service],
+        name=SESSION_EXPIRY_JOB_NAME,
+    )
+    logger.info(
+        "Registered internal scheduler job %s every %s minute(s) in timezone %s.",
+        SESSION_EXPIRY_JOB_NAME,
+        SESSION_EXPIRY_INTERVAL_MINUTES,
+        config.tz_name,
+    )
+
     jobs = list(await scheduler_job_repo.list_enabled_jobs())
     if not jobs:
-        logger.warning("No enabled scheduler jobs found in database; scheduler will stay idle.")
+        logger.warning("No enabled scheduler jobs found in database; only internal housekeeping jobs will run.")
         return
 
     logger.info("Loaded %s enabled scheduler job(s) from database.", len(jobs))

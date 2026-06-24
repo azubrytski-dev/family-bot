@@ -6,7 +6,12 @@ from typing import TypedDict
 
 import pytest
 
-from app.bot.scheduler import execute_scheduler_job, setup_scheduler
+from app.bot.scheduler import (
+    SESSION_EXPIRY_JOB_NAME,
+    execute_scheduler_job,
+    execute_session_expiry_job,
+    setup_scheduler,
+)
 from app.core.config import AppConfig
 from app.core.models import SchedulerJob
 from app.core.services.activity_service import ActivityService
@@ -130,6 +135,8 @@ class StubSessionMemoryService:
         self.test_calls: list[tuple[int, datetime | None]] = []
         self.evening_calls: list[tuple[int, datetime | None]] = []
         self.bot_replies: list[dict[str, object]] = []
+        self.expiry_calls = 0
+        self.expiry_result: list[object] = []
 
     async def get_yesterday_completed_summaries(
         self,
@@ -176,6 +183,10 @@ class StubSessionMemoryService:
                 "bot_username": bot_username,
             }
         )
+
+    async def complete_expired_sessions(self) -> list[object]:
+        self.expiry_calls += 1
+        return list(self.expiry_result)
 
 
 def _make_config(monkeypatch) -> AppConfig:
@@ -239,19 +250,26 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch, caplog: pytest.LogCapt
         "family_bot",
     )
 
-    assert [job["name"] for job in scheduler.jobs] == ["weather_morning", "good_morning", "night"]
-    assert scheduler.jobs[0]["args"][0] == "weather_morning"
-    assert scheduler.jobs[0]["args"][2] == 111
-    assert scheduler.jobs[1]["args"][0] == "good_morning"
-    assert scheduler.jobs[1]["args"][2] == 321
-    assert scheduler.jobs[1]["args"][6] is ai_service
-    assert scheduler.jobs[1]["args"][7] is session_memory_service
-    assert scheduler.jobs[1]["args"][8] is None
-    assert scheduler.jobs[1]["args"][9] is True
-    assert scheduler.jobs[1]["args"][10] == "family_bot"
-    assert scheduler.jobs[2]["args"][0] == "good_night_and_activity"
-    assert scheduler.jobs[2]["args"][2] == 999
+    assert [job["name"] for job in scheduler.jobs] == [
+        SESSION_EXPIRY_JOB_NAME,
+        "weather_morning",
+        "good_morning",
+        "night",
+    ]
+    assert scheduler.jobs[0]["args"] == [session_memory_service]
+    assert scheduler.jobs[1]["args"][0] == "weather_morning"
+    assert scheduler.jobs[1]["args"][2] == 111
+    assert scheduler.jobs[2]["args"][0] == "good_morning"
+    assert scheduler.jobs[2]["args"][2] == 321
+    assert scheduler.jobs[2]["args"][6] is ai_service
+    assert scheduler.jobs[2]["args"][7] is session_memory_service
+    assert scheduler.jobs[2]["args"][8] is None
+    assert scheduler.jobs[2]["args"][9] is True
+    assert scheduler.jobs[2]["args"][10] == "family_bot"
+    assert scheduler.jobs[3]["args"][0] == "good_night_and_activity"
+    assert scheduler.jobs[3]["args"][2] == 999
     assert "Loaded 3 enabled scheduler job(s) from database." in caplog.text
+    assert f"Registered internal scheduler job {SESSION_EXPIRY_JOB_NAME}" in caplog.text
     assert "Found scheduler job key=weather_morning type=weather_morning enabled=True chat_id=111 schedule=07:30 timezone=Europe/Minsk" in caplog.text
     assert "Registered scheduler job key=weather_morning type=weather_morning chat_id=111 schedule=07:30 timezone=Europe/Minsk." in caplog.text
 
@@ -295,9 +313,49 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(
         "family_bot",
     )
 
-    assert scheduler.jobs == []
+    assert [job["name"] for job in scheduler.jobs] == [SESSION_EXPIRY_JOB_NAME]
     assert "Found scheduler job key=good_morning type=good_morning enabled=True chat_id=None schedule=08:00 timezone=Europe/Minsk" in caplog.text
     assert "Skipping scheduler job good_morning because no chat_id is configured in DB." in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_setup_scheduler_keeps_internal_housekeeping_when_db_jobs_missing(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    cfg = _make_config(monkeypatch)
+    scheduler = RecordingScheduler()
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+    ai_service = StubAiService()
+    session_memory_service = StubSessionMemoryService()
+    caplog.set_level(logging.INFO, logger="scheduler")
+    repo = InMemorySchedulerJobRepo([])
+
+    await setup_scheduler(
+        scheduler,
+        bot,
+        cfg,
+        activity_service,
+        weather_service,
+        ai_service,  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
+        repo,
+        "family_bot",
+    )
+
+    assert [job["name"] for job in scheduler.jobs] == [SESSION_EXPIRY_JOB_NAME]
+    assert "No enabled scheduler jobs found in database; only internal housekeeping jobs will run." in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_execute_session_expiry_job_runs_completion_pass():
+    session_memory_service = StubSessionMemoryService()
+
+    await execute_session_expiry_job(session_memory_service)  # type: ignore[arg-type]
+
+    assert session_memory_service.expiry_calls == 1
 
 
 @pytest.mark.asyncio
@@ -590,9 +648,9 @@ async def test_setup_scheduler_enables_tracking_for_scheduled_weather_messages(m
         "family_bot",
     )
 
-    assert scheduler.jobs[0]["args"][0] == "weather_morning"
-    assert scheduler.jobs[0]["args"][9] is True
-    assert scheduler.jobs[0]["args"][10] == "family_bot"
+    assert scheduler.jobs[1]["args"][0] == "weather_morning"
+    assert scheduler.jobs[1]["args"][9] is True
+    assert scheduler.jobs[1]["args"][10] == "family_bot"
 
 
 @pytest.mark.asyncio
