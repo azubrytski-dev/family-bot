@@ -67,6 +67,29 @@ def _build_ai_context(message: Message) -> str:
     return f"Автор: {author}\nСообщение: {user_message}"
 
 
+async def _build_reply_context(
+    message: Message,
+    *,
+    session_memory_service: SessionMemoryService | None,
+) -> str:
+    if session_memory_service is None:
+        return _build_ai_context(message)
+
+    author = (
+        getattr(message.from_user, "full_name", None)
+        or getattr(message.from_user, "username", None)
+        or "Unknown"
+    )
+    message_ts = getattr(message, "date", None) or datetime.now(timezone.utc)
+    return await session_memory_service.build_reply_context(
+        chat_id=message.chat.id,
+        author_name=author,
+        message_text=_message_text(message),
+        reply_to_message_text=_message_text(getattr(message, "reply_to_message", None)),
+        as_of_utc=message_ts,
+    )
+
+
 def _is_reply_to_bot(message: Message, bot_user_id: int | None) -> bool:
     if bot_user_id is None:
         return False
@@ -282,7 +305,10 @@ def setup_handlers(
         if not _is_ai_trigger(message, bot_username=bot_username, bot_user_id=bot_user_id):
             return
 
-        context = _build_ai_context(message)
+        context = await _build_reply_context(
+            message,
+            session_memory_service=session_memory_service,
+        )
         reply = await ai_service.reply_to_mention(context)
         sent_message = await message.answer(reply)
         if session_memory_service is not None:

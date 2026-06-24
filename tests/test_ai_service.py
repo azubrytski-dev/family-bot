@@ -48,6 +48,10 @@ async def test_reply_to_mention_mentions_reply_context_format():
 
     assert client.last_system_prompt is not None
     assert "не знаешь" not in client.last_system_prompt.lower()
+    assert "Недавние сводки сессий" in client.last_system_prompt
+    assert "Недавний контекст текущей сессии" in client.last_system_prompt
+    assert "reply_to_bot=yes" in client.last_system_prompt
+    assert "1-2 уместных эмодзи" in client.last_system_prompt
     assert client.last_user_prompt is not None
     assert "bot_message" in client.last_user_prompt
     assert "user_reply" in client.last_user_prompt

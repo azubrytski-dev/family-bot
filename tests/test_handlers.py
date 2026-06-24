@@ -8,6 +8,7 @@ import pytest
 from aiogram.types import Message
 
 from app.bot.handlers import (
+    _build_reply_context,
     _build_ai_context,
     _handle_test_command,
     _is_active_bot_status,
@@ -50,9 +51,15 @@ class DummySessionMemoryService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.recorded_messages: list[dict[str, object]] = []
+        self.reply_context_calls: list[dict[str, object]] = []
+        self.reply_context_result = "session-based-context"
 
     async def record_message(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         self.recorded_messages.append(kwargs)
+
+    async def build_reply_context(self, **kwargs) -> str:  # type: ignore[no-untyped-def]
+        self.reply_context_calls.append(kwargs)
+        return self.reply_context_result
 
     async def record_bot_reply(
         self,
@@ -154,6 +161,57 @@ def test_build_ai_context_includes_bot_message_and_user_reply():
 
     assert "bot_message: Сегодня в Минске прохладно." in context
     assert "user_reply: А завтра?" in context
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_uses_session_memory_when_available():
+    session_memory_service = DummySessionMemoryService()
+    message = cast(
+        Message,
+        SimpleNamespace(
+            chat=SimpleNamespace(id=123),
+            text="А что потом?",
+            caption=None,
+            date=SimpleNamespace(),
+            reply_to_message=SimpleNamespace(text="Сейчас прохладно.", caption=None),
+            from_user=SimpleNamespace(full_name="Andrei", username="andrei"),
+        ),
+    )
+
+    context = await _build_reply_context(
+        message,
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+    )
+
+    assert context == "session-based-context"
+    assert session_memory_service.reply_context_calls == [
+        {
+            "chat_id": 123,
+            "author_name": "Andrei",
+            "message_text": "А что потом?",
+            "reply_to_message_text": "Сейчас прохладно.",
+            "as_of_utc": session_memory_service.reply_context_calls[0]["as_of_utc"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_falls_back_without_session_memory():
+    message = cast(
+        Message,
+        SimpleNamespace(
+            chat=SimpleNamespace(id=123),
+            text="А что потом?",
+            caption=None,
+            reply_to_message=SimpleNamespace(text="Сейчас прохладно.", caption=None),
+            from_user=SimpleNamespace(full_name="Andrei", username="andrei"),
+        ),
+    )
+
+    context = await _build_reply_context(message, session_memory_service=None)
+
+    assert "bot_message: Сейчас прохладно." in context
+    assert "user_reply: А что потом?" in context
 
 
 def test_bot_reply_can_be_captured_with_default_bot_user_id():

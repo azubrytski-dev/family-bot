@@ -12,6 +12,8 @@ from app.storage.repo import SessionMemoryRepository
 SESSION_TTL = timedelta(hours=6)
 MESSAGE_TEXT_LIMIT = 100
 SUMMARY_TEXT_LIMIT = 500
+REPLY_CONTEXT_SUMMARY_LIMIT = 4
+REPLY_CONTEXT_MESSAGE_LIMIT = 8
 DEFAULT_TZ_NAME = "Europe/Minsk"
 BOT_SESSION_USER_ID = 0
 BOT_SESSION_DISPLAY_NAME = "Family Bot"
@@ -263,8 +265,79 @@ class SessionMemoryService:
             today_summaries=today_summaries,
         )
 
+    async def build_reply_context(
+        self,
+        *,
+        chat_id: int,
+        author_name: str,
+        message_text: str,
+        reply_to_message_text: str | None,
+        as_of_utc: datetime | None = None,
+    ) -> str:
+        normalized_as_of = _normalize_utc(as_of_utc or datetime.now(timezone.utc))
+        await self.complete_expired_sessions(as_of_utc=normalized_as_of)
+        local_today = self._local_date(normalized_as_of)
+        yesterday = local_today - timedelta(days=1)
+
+        sections = [
+            f"Автор: {author_name}",
+            f"Текущее сообщение: {self._normalize_message_text(message_text)}",
+        ]
+        normalized_reply = self._normalize_message_text(reply_to_message_text or "")
+        if normalized_reply:
+            sections.append(f"Ответ на сообщение бота: {normalized_reply}")
+
+        summary_lines = await self._list_recent_summary_lines(
+            chat_id=chat_id,
+            local_dates=(yesterday, local_today),
+        )
+        if summary_lines:
+            sections.append("Недавние сводки сессий:\n" + "\n".join(summary_lines))
+
+        transcript_lines = await self._list_open_session_transcript(chat_id=chat_id)
+        if transcript_lines:
+            sections.append("Недавний контекст текущей сессии:\n" + "\n".join(transcript_lines))
+
+        return "\n\n".join(section for section in sections if section.strip())
+
     def _local_date(self, value: datetime) -> date:
         return value.astimezone(self._tz).date()
+
+    async def _list_recent_summary_lines(
+        self,
+        *,
+        chat_id: int,
+        local_dates: Sequence[date],
+    ) -> list[str]:
+        summary_lines: list[str] = []
+        for local_date in local_dates:
+            sessions = await self._repo.list_completed_sessions_for_date(chat_id=chat_id, local_date=local_date)
+            for session in sessions:
+                summary = (session.summary_text or "").strip()
+                if not summary:
+                    continue
+                summary_lines.append(f"- {local_date.isoformat()}: {summary}")
+                if len(summary_lines) >= REPLY_CONTEXT_SUMMARY_LIMIT:
+                    return summary_lines
+        return summary_lines
+
+    async def _list_open_session_transcript(self, *, chat_id: int) -> list[str]:
+        open_session = await self._repo.get_open_session(chat_id)
+        if open_session is None:
+            return []
+
+        messages = list(await self._repo.list_session_messages(open_session.id))
+        if not messages:
+            return []
+
+        transcript_lines: list[str] = []
+        for message in messages[-REPLY_CONTEXT_MESSAGE_LIMIT:]:
+            speaker = message.display_name or message.username or f"id:{message.user_id}"
+            reply_flag = "yes" if message.is_reply_to_bot else "no"
+            transcript_lines.append(
+                f"- {message.message_ts_utc.isoformat()} | {speaker} | reply_to_bot={reply_flag} | {message.message_text}"
+            )
+        return transcript_lines
 
     @staticmethod
     def _normalize_message_text(text: str) -> str:

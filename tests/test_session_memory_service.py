@@ -454,3 +454,91 @@ async def test_get_evening_summaries_combines_yesterday_today_and_open_preview()
         "Сегодня уже сходили по делам.",
         "Ещё успели обсудить вечерние дела.",
     ]
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_uses_recent_summaries_and_open_session_messages() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 23),
+        started_at_utc=datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="Вчера обсудили планы и прогулку с Малышом.",
+    )
+    repo.sessions[2] = ChatSession(
+        id=2,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="Сегодня вспомнили про Луника.",
+    )
+    repo.sessions[3] = ChatSession(
+        id=3,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 15, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 21, 0, tzinfo=timezone.utc),
+        completed_at_utc=None,
+        status="open",
+        message_count=2,
+        summary_text=None,
+    )
+    repo.messages[3] = [
+        SessionMessage(
+            id=1,
+            session_id=3,
+            chat_id=10,
+            telegram_message_id=201,
+            user_id=BOT_SESSION_USER_ID,
+            username="family_bot",
+            display_name=BOT_SESSION_DISPLAY_NAME,
+            message_text="Привет! Как у вас дела?",
+            message_ts_utc=datetime(2026, 6, 24, 15, 10, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        ),
+        SessionMessage(
+            id=2,
+            session_id=3,
+            chat_id=10,
+            telegram_message_id=202,
+            user_id=501,
+            username="andrei",
+            display_name="Andrei",
+            message_text="Подскажи про вечернюю прогулку.",
+            message_ts_utc=datetime(2026, 6, 24, 15, 12, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=True,
+        ),
+    ]
+
+    context = await service.build_reply_context(
+        chat_id=10,
+        author_name="Andrei",
+        message_text="А что лучше взять с собой?",
+        reply_to_message_text="Привет! Как у вас дела?",
+        as_of_utc=datetime(2026, 6, 24, 15, 15, tzinfo=timezone.utc),
+    )
+
+    assert "Автор: Andrei" in context
+    assert "Текущее сообщение: А что лучше взять с собой?" in context
+    assert "Ответ на сообщение бота: Привет! Как у вас дела?" in context
+    assert "Недавние сводки сессий:" in context
+    assert "2026-06-23: Вчера обсудили планы и прогулку с Малышом." in context
+    assert "2026-06-24: Сегодня вспомнили про Луника." in context
+    assert "Недавний контекст текущей сессии:" in context
+    assert "Family Bot" in context
+    assert "reply_to_bot=yes" in context
+    assert "Подскажи про вечернюю прогулку." in context

@@ -13,15 +13,15 @@
   - `app/bot/handlers.py`
   - `app/main.py`
 - Key assumptions:
-  - Step 3 owns the evening summary-consumption path; personal-reply session context remains future work.
   - A session stays open for 6 hours from its first stored message.
   - Raw session messages are deleted only after summary persistence succeeds.
   - Only plain text messages are stored for memory in this step; captions and non-text content are ignored.
+  - Personal bot replies should use recent archived summaries plus the current open-session transcript, without introducing a separate long-term raw-message store for completed sessions.
 - Risks to watch:
   - Session completion is currently triggered during message recording, so idle chats will need a later scheduled completion path if no new messages arrive after expiry.
   - Morning generation now forces an expired-session completion pass before reading yesterday's summaries, which is good for freshness but still depends on the same repository/archive path succeeding.
   - Evening generation now previews the current open session when today's context is not fully archived yet, which improves relevance but means the evening message may reflect transient same-day context.
-  - Personal-reply session-context consumption is still deferred to the next step.
+  - Personal replies now depend on the same current-session transcript and archived-summary paths, so failures in session reads should keep falling back to the old inline mention context instead of breaking bot replies.
 
 ## Test Plan
 
