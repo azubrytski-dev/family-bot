@@ -236,6 +236,7 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch, caplog: pytest.LogCapt
         ai_service,  # type: ignore[arg-type]
         session_memory_service,  # type: ignore[arg-type]
         repo,
+        "family_bot",
     )
 
     assert [job["name"] for job in scheduler.jobs] == ["weather_morning", "good_morning", "night"]
@@ -245,6 +246,9 @@ async def test_setup_scheduler_loads_db_jobs(monkeypatch, caplog: pytest.LogCapt
     assert scheduler.jobs[1]["args"][2] == 321
     assert scheduler.jobs[1]["args"][6] is ai_service
     assert scheduler.jobs[1]["args"][7] is session_memory_service
+    assert scheduler.jobs[1]["args"][8] is None
+    assert scheduler.jobs[1]["args"][9] is True
+    assert scheduler.jobs[1]["args"][10] == "family_bot"
     assert scheduler.jobs[2]["args"][0] == "good_night_and_activity"
     assert scheduler.jobs[2]["args"][2] == 999
     assert "Loaded 3 enabled scheduler job(s) from database." in caplog.text
@@ -288,6 +292,7 @@ async def test_setup_scheduler_skips_jobs_without_chat_id(
         ai_service,  # type: ignore[arg-type]
         session_memory_service,  # type: ignore[arg-type]
         repo,
+        "family_bot",
     )
 
     assert scheduler.jobs == []
@@ -548,6 +553,46 @@ async def test_execute_scheduler_job_sends_weather_morning_summary(monkeypatch):
     await execute_scheduler_job("weather_morning", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
 
     assert bot.sent_messages == [(321, "Погода утром готова.")]
+
+
+@pytest.mark.asyncio
+async def test_setup_scheduler_enables_tracking_for_scheduled_weather_messages(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    scheduler = RecordingScheduler()
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = StubWeatherService()
+    ai_service = StubAiService()
+    session_memory_service = StubSessionMemoryService()
+    repo = InMemorySchedulerJobRepo(
+        [
+            SchedulerJob(
+                job_key="weather_morning",
+                job_type="weather_morning",
+                cron_hour=7,
+                cron_minute=30,
+                timezone_name="Europe/Minsk",
+                chat_id=111,
+                enabled=True,
+            )
+        ]
+    )
+
+    await setup_scheduler(
+        scheduler,
+        bot,
+        cfg,
+        activity_service,
+        weather_service,
+        ai_service,  # type: ignore[arg-type]
+        session_memory_service,  # type: ignore[arg-type]
+        repo,
+        "family_bot",
+    )
+
+    assert scheduler.jobs[0]["args"][0] == "weather_morning"
+    assert scheduler.jobs[0]["args"][9] is True
+    assert scheduler.jobs[0]["args"][10] == "family_bot"
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import re
 from typing import Protocol, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -10,10 +11,11 @@ from app.storage.repo import SessionMemoryRepository
 
 
 SESSION_TTL = timedelta(hours=6)
-MESSAGE_TEXT_LIMIT = 100
+MESSAGE_TEXT_LIMIT = 2000
 SUMMARY_TEXT_LIMIT = 500
 REPLY_CONTEXT_SUMMARY_LIMIT = 4
 REPLY_CONTEXT_MESSAGE_LIMIT = 8
+REPLY_CONTEXT_AUTHOR_MESSAGE_LIMIT = 3
 DEFAULT_TZ_NAME = "Europe/Minsk"
 BOT_SESSION_USER_ID = 0
 BOT_SESSION_DISPLAY_NAME = "Family Bot"
@@ -269,6 +271,7 @@ class SessionMemoryService:
         self,
         *,
         chat_id: int,
+        author_user_id: int | None,
         author_name: str,
         message_text: str,
         reply_to_message_text: str | None,
@@ -293,6 +296,18 @@ class SessionMemoryService:
         )
         if summary_lines:
             sections.append("Недавние сводки сессий:\n" + "\n".join(summary_lines))
+
+        author_message_lines = await self._list_recent_author_messages(
+            chat_id=chat_id,
+            author_user_id=author_user_id,
+            current_message_text=self._normalize_message_text(message_text),
+        )
+        if author_message_lines:
+            sections.append("Последние сообщения автора:\n" + "\n".join(author_message_lines))
+
+        latest_weather_message = await self._get_latest_bot_weather_message(chat_id=chat_id)
+        if latest_weather_message:
+            sections.append(f"Последняя погодная сводка бота:\n{latest_weather_message}")
 
         transcript_lines = await self._list_open_session_transcript(chat_id=chat_id)
         if transcript_lines:
@@ -339,9 +354,66 @@ class SessionMemoryService:
             )
         return transcript_lines
 
+    async def _list_recent_author_messages(
+        self,
+        *,
+        chat_id: int,
+        author_user_id: int | None,
+        current_message_text: str,
+    ) -> list[str]:
+        if author_user_id is None:
+            return []
+
+        open_session = await self._repo.get_open_session(chat_id)
+        if open_session is None:
+            return []
+
+        messages = list(await self._repo.list_session_messages(open_session.id))
+        if not messages:
+            return []
+
+        author_messages = [
+            message
+            for message in messages
+            if message.user_id == author_user_id
+            and message.message_text != current_message_text
+        ]
+        recent_messages = author_messages[-REPLY_CONTEXT_AUTHOR_MESSAGE_LIMIT:]
+        return [f"- {message.message_text}" for message in recent_messages]
+
+    async def _get_latest_bot_weather_message(self, *, chat_id: int) -> str | None:
+        open_session = await self._repo.get_open_session(chat_id)
+        if open_session is None:
+            return None
+
+        messages = list(await self._repo.list_session_messages(open_session.id))
+        for message in reversed(messages):
+            if message.user_id != BOT_SESSION_USER_ID:
+                continue
+            if self._looks_like_weather_message(message.message_text):
+                return message.message_text
+        return None
+
+    @staticmethod
+    def _looks_like_weather_message(text: str) -> bool:
+        lowered = text.lower()
+        weather_markers = (
+            "погод",
+            "ветер",
+            "дожд",
+            "uv",
+            "spf",
+            "°c",
+            "минск",
+            "тбилиси",
+        )
+        marker_hits = sum(1 for marker in weather_markers if marker in lowered)
+        return marker_hits >= 2
+
     @staticmethod
     def _normalize_message_text(text: str) -> str:
-        return text.strip()[:MESSAGE_TEXT_LIMIT]
+        normalized = re.sub(r"\s+", " ", text).strip()
+        return normalized[:MESSAGE_TEXT_LIMIT]
 
     @staticmethod
     def _normalize_summary_text(text: str) -> str:

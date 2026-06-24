@@ -153,7 +153,7 @@ async def test_record_message_creates_session_and_trims_text() -> None:
         user_id=501,
         username="andrei",
         display_name="Andrei",
-        message_text="  " + ("x" * 140) + "  ",
+        message_text=" \n  Привет   \n\n   " + ("x" * 2100) + "   ",
         message_ts_utc=ts,
         is_reply_to_bot=True,
     )
@@ -163,7 +163,10 @@ async def test_record_message_creates_session_and_trims_text() -> None:
     assert session.local_date.isoformat() == "2026-06-23"
     messages = await repo.list_session_messages(session.id)
     assert len(messages) == 1
-    assert messages[0].message_text == "x" * 100
+    assert messages[0].message_text.startswith("Привет ")
+    assert len(messages[0].message_text) == 2000
+    assert "\n" not in messages[0].message_text
+    assert "  " not in messages[0].message_text
     assert messages[0].is_reply_to_bot is True
     assert messages[0].local_date.isoformat() == "2026-06-23"
 
@@ -186,6 +189,37 @@ async def test_record_message_ignores_blank_text() -> None:
     )
 
     assert repo.sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_record_message_preserves_full_weather_text_with_compact_whitespace() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    weather_text = (
+        "24 июня 2026 года.\n\n"
+        "Сегодня ожидается спокойный и пасмурный день в Минске и Тбилиси.  \n\n"
+        "Минск: Утром +15°C, ветер 12 км/ч.  \n"
+        "Тбилиси: Днём +20°C, ветер 14 км/ч. 🌥️😊"
+    )
+
+    await service.record_bot_reply(
+        chat_id=10,
+        telegram_message_id=501,
+        message_text=weather_text,
+        message_ts_utc=datetime(2026, 6, 24, 9, 0, tzinfo=timezone.utc),
+        bot_username="family_bot",
+    )
+
+    session = await repo.get_open_session(10)
+    assert session is not None
+    messages = await repo.list_session_messages(session.id)
+    assert len(messages) == 1
+    assert messages[0].message_text == (
+        "24 июня 2026 года. Сегодня ожидается спокойный и пасмурный день в Минске и Тбилиси. "
+        "Минск: Утром +15°C, ветер 12 км/ч. Тбилиси: Днём +20°C, ветер 14 км/ч. 🌥️😊"
+    )
 
 
 @pytest.mark.asyncio
@@ -526,6 +560,7 @@ async def test_build_reply_context_uses_recent_summaries_and_open_session_messag
 
     context = await service.build_reply_context(
         chat_id=10,
+        author_user_id=501,
         author_name="Andrei",
         message_text="А что лучше взять с собой?",
         reply_to_message_text="Привет! Как у вас дела?",
@@ -538,7 +573,117 @@ async def test_build_reply_context_uses_recent_summaries_and_open_session_messag
     assert "Недавние сводки сессий:" in context
     assert "2026-06-23: Вчера обсудили планы и прогулку с Малышом." in context
     assert "2026-06-24: Сегодня вспомнили про Луника." in context
+    assert "Последние сообщения автора:" in context
+    assert "Подскажи про вечернюю прогулку." in context
     assert "Недавний контекст текущей сессии:" in context
     assert "Family Bot" in context
     assert "reply_to_bot=yes" in context
     assert "Подскажи про вечернюю прогулку." in context
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_surfaces_latest_bot_weather_message() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 20, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 25, 2, 0, tzinfo=timezone.utc),
+        completed_at_utc=None,
+        status="open",
+        message_count=3,
+        summary_text=None,
+    )
+    repo.messages[1] = [
+        SessionMessage(
+            id=1,
+            session_id=1,
+            chat_id=10,
+            telegram_message_id=301,
+            user_id=BOT_SESSION_USER_ID,
+            username="family_bot",
+            display_name=BOT_SESSION_DISPLAY_NAME,
+            message_text=(
+                "24 июня 2026 года. В Тбилиси утром 23°C с ветром 13.2 км/ч, "
+                "днём 30°C и сильным ветром 18.8 км/ч, вечером 27°C, ветер 25.1 км/ч."
+            ),
+            message_ts_utc=datetime(2026, 6, 24, 20, 30, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        ),
+        SessionMessage(
+            id=2,
+            session_id=1,
+            chat_id=10,
+            telegram_message_id=302,
+            user_id=501,
+            username="andrei",
+            display_name="Andrei",
+            message_text="Как там погода и как ветер в Тбилиси сегодня?",
+            message_ts_utc=datetime(2026, 6, 24, 20, 31, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        ),
+    ]
+
+    context = await service.build_reply_context(
+        chat_id=10,
+        author_user_id=501,
+        author_name="Andrei",
+        message_text="А какой ветер точно?",
+        reply_to_message_text=None,
+        as_of_utc=datetime(2026, 6, 24, 20, 32, tzinfo=timezone.utc),
+    )
+
+    assert "Последняя погодная сводка бота:" in context
+    assert "ветром 18.8 км/ч" in context
+    assert "ветер 25.1 км/ч" in context
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_skips_author_section_without_author_id() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 15, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 21, 0, tzinfo=timezone.utc),
+        completed_at_utc=None,
+        status="open",
+        message_count=1,
+        summary_text=None,
+    )
+    repo.messages[1] = [
+        SessionMessage(
+            id=1,
+            session_id=1,
+            chat_id=10,
+            telegram_message_id=201,
+            user_id=501,
+            username="andrei",
+            display_name="Andrei",
+            message_text="Сегодня ел борщ.",
+            message_ts_utc=datetime(2026, 6, 24, 15, 10, tzinfo=timezone.utc),
+            local_date=date(2026, 6, 24),
+            is_reply_to_bot=False,
+        ),
+    ]
+
+    context = await service.build_reply_context(
+        chat_id=10,
+        author_user_id=None,
+        author_name="Andrei",
+        message_text="Как тебе мой ужин?",
+        reply_to_message_text=None,
+        as_of_utc=datetime(2026, 6, 24, 15, 15, tzinfo=timezone.utc),
+    )
+
+    assert "Последние сообщения автора:" not in context

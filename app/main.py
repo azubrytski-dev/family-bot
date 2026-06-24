@@ -156,6 +156,7 @@ async def main() -> None:
                 ai_service,
                 session_memory_service,
                 scheduler_job_repo,
+                bot_me.username,
             )
             scheduler.start()
 

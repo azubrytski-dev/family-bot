@@ -83,6 +83,7 @@ async def _build_reply_context(
     message_ts = getattr(message, "date", None) or datetime.now(timezone.utc)
     return await session_memory_service.build_reply_context(
         chat_id=message.chat.id,
+        author_user_id=getattr(getattr(message, "from_user", None), "id", None),
         author_name=author,
         message_text=_message_text(message),
         reply_to_message_text=_message_text(getattr(message, "reply_to_message", None)),

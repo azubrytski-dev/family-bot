@@ -187,6 +187,7 @@ async def test_build_reply_context_uses_session_memory_when_available():
     assert session_memory_service.reply_context_calls == [
         {
             "chat_id": 123,
+            "author_user_id": None,
             "author_name": "Andrei",
             "message_text": "А что потом?",
             "reply_to_message_text": "Сейчас прохладно.",

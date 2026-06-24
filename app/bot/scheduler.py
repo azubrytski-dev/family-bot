@@ -137,6 +137,7 @@ async def setup_scheduler(
     ai_service: AiService,
     session_memory_service: SessionMemoryService,
     scheduler_job_repo: SchedulerJobRepository,
+    bot_username: str | None = None,
 ) -> None:
     logger = logging.getLogger("scheduler")
 
@@ -195,6 +196,9 @@ async def setup_scheduler(
                 weather_service,
                 ai_service,
                 session_memory_service,
+                None,
+                True,
+                bot_username,
             ],
             name=job.job_key,
         )
