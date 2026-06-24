@@ -20,16 +20,20 @@ Create intentional commits with a clean scope and a short repository-consistent 
    - `(fix):` for bug fixes and correctness changes
    - `(spec):` for proposal, planning, or tracked-change docs
    - `(chore):` for maintenance, tooling, or non-product cleanup
-4. Use a one-line commit message in the form `(type): short summary`.
-5. Stage only the files that belong to the requested checkpoint.
-6. Commit without amending unless the user explicitly asks for it.
-7. Report the created commit hash and confirm whether the worktree is clean.
+4. Before committing a milestone, give the user:
+   - a short summary of what changed;
+   - concrete local test steps they can run or try.
+5. Use a one-line commit message in the form `(type): short summary`.
+6. Stage only the files that belong to the requested checkpoint.
+7. Commit without amending unless the user explicitly asks for it.
+8. Report the created commit hash and confirm whether the worktree is clean.
 
 ## Repository-Specific Rules
 
 - Check recent history before choosing the final message wording.
 - Prefer one-line tagged commit messages over unprefixed summaries.
 - Do not include unrelated tracked-change files unless they belong to the same checkpoint.
+- Before each milestone commit, provide a brief "what changed" summary and a short "how to test" checklist.
 - If tests were run, mention that in the final summary after committing.
 - If `.git` writes require approval, request escalation only for the git staging/commit step.
 
@@ -37,6 +41,8 @@ Create intentional commits with a clean scope and a short repository-consistent 
 
 Report:
 
+- the short pre-commit milestone summary;
+- the suggested user test steps;
 - the chosen commit message;
 - the created commit hash;
 - whether the worktree is clean;
