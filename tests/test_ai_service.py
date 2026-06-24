@@ -131,3 +131,22 @@ async def test_generate_session_summary_uses_safe_russian_prompt():
     assert "не драматизируй" in client.last_prompt
     assert "Andrei" in client.last_prompt
     assert "У Алены завтра экзамен." in client.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_morning_greeting_uses_summary_context():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    summary = await service.generate_morning_greeting(
+        summary_date=date.fromisoformat("2026-06-23"),
+        summaries=["Вчера обсуждали экзамен Алены и прогулку с Малышом."],
+    )
+
+    assert summary == "Общая сводка по всем городам готова."
+    assert client.last_system_prompt is not None
+    assert "доброе утреннее сообщение" in client.last_system_prompt
+    assert "не драматизируй" in client.last_system_prompt
+    assert client.last_user_prompt is not None
+    assert "2026-06-23" in client.last_user_prompt
+    assert "прогулку с Малышом" in client.last_user_prompt

@@ -72,3 +72,10 @@ class SessionMemoryRepository(Protocol):
         completed_at_utc: datetime,
         summary_text: str,
     ) -> None: ...
+
+    async def list_completed_sessions_for_date(
+        self,
+        *,
+        chat_id: int,
+        local_date: date,
+    ) -> Sequence[ChatSession]: ...

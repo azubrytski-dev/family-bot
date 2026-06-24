@@ -110,6 +110,18 @@ class InMemorySessionRepo:
         )
         self.messages[session_id] = []
 
+    async def list_completed_sessions_for_date(
+        self,
+        *,
+        chat_id: int,
+        local_date: date,
+    ) -> list[ChatSession]:
+        return [
+            session
+            for session in self.sessions.values()
+            if session.chat_id == chat_id and session.local_date == local_date and session.status == "completed"
+        ]
+
 
 class DummySummaryGenerator:
     def __init__(self, response: str = "Саша и Андрей обсуждали планы на день.") -> None:
@@ -265,3 +277,41 @@ async def test_record_bot_reply_uses_default_bot_identity() -> None:
     assert messages[0].display_name == BOT_SESSION_DISPLAY_NAME
     assert messages[0].username == "family_bot"
     assert messages[0].is_reply_to_bot is False
+
+
+@pytest.mark.asyncio
+async def test_get_yesterday_completed_summaries_uses_local_date_and_completed_sessions() -> None:
+    repo = InMemorySessionRepo()
+    summary_generator = DummySummaryGenerator()
+    service = SessionMemoryService(repo=repo, summary_generator=summary_generator, tz_name="Europe/Minsk")
+
+    repo.sessions[1] = ChatSession(
+        id=1,
+        chat_id=10,
+        local_date=date(2026, 6, 23),
+        started_at_utc=datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=2,
+        summary_text="Вчера обсуждали планы и прогулку с Малышом.",
+    )
+    repo.sessions[2] = ChatSession(
+        id=2,
+        chat_id=10,
+        local_date=date(2026, 6, 24),
+        started_at_utc=datetime(2026, 6, 24, 8, 0, tzinfo=timezone.utc),
+        expires_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        completed_at_utc=datetime(2026, 6, 24, 14, 0, tzinfo=timezone.utc),
+        status="completed",
+        message_count=1,
+        summary_text="Сегодня были домашние дела.",
+    )
+
+    context = await service.get_yesterday_completed_summaries(
+        chat_id=10,
+        as_of_utc=datetime(2026, 6, 24, 6, 0, tzinfo=timezone.utc),
+    )
+
+    assert context.local_date == date(2026, 6, 23)
+    assert context.summaries == ["Вчера обсуждали планы и прогулку с Малышом."]

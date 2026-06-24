@@ -321,6 +321,42 @@ async def test_pg_session_memory_repo_archives_session_and_deletes_messages(test
 
 
 @pytest.mark.asyncio
+async def test_pg_session_memory_repo_lists_completed_sessions_for_date(test_database_url: str):
+    repo = PgSessionMemoryRepository(test_database_url)
+    started_at = datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc)
+    expires_at = datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc)
+
+    session = await repo.create_session(
+        chat_id=702,
+        local_date=started_at.date(),
+        started_at_utc=started_at,
+        expires_at_utc=expires_at,
+    )
+    await repo.add_message(
+        chat_id=702,
+        session_id=session.id,
+        telegram_message_id=1002,
+        user_id=501,
+        username="andrei",
+        display_name="Andrei",
+        message_text="Планы на утро",
+        message_ts_utc=started_at,
+        local_date=started_at.date(),
+        is_reply_to_bot=False,
+    )
+    await repo.archive_session(
+        session_id=session.id,
+        completed_at_utc=expires_at,
+        summary_text="Обсуждали планы на утро.",
+    )
+
+    sessions = await repo.list_completed_sessions_for_date(chat_id=702, local_date=started_at.date())
+
+    assert len(sessions) == 1
+    assert sessions[0].summary_text == "Обсуждали планы на утро."
+
+
+@pytest.mark.asyncio
 async def test_pg_chat_registry_test_flag_defaults_to_false_and_can_be_enabled(test_database_url: str):
     conn = await psycopg.AsyncConnection.connect(test_database_url)
 

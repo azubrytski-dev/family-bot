@@ -75,6 +75,11 @@ class DummyActivityService:
         return None
 
 
+class DummyAiService:
+    async def generate_morning_greeting(self, *, summary_date, summaries):  # type: ignore[no-untyped-def]
+        return "Доброе утро!"
+
+
 class DummyBot:
     pass
 
@@ -203,8 +208,10 @@ async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.M
         bot=DummyBot(),
         config=_make_config(monkeypatch),
         activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=None,
         logger=logging.getLogger("test"),
     )
 
@@ -224,8 +231,10 @@ async def test_handle_test_command_rejects_when_test_commands_disabled(monkeypat
         bot=DummyBot(),
         config=_make_config(monkeypatch),
         activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=False),  # type: ignore[arg-type]
+        session_memory_service=None,
         logger=logging.getLogger("test"),
     )
 

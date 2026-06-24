@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol, Sequence
 
 from app.core.models import SessionMessage
@@ -163,3 +163,28 @@ class AiService:
             "Сформулируй одну компактную сводку для памяти бота."
         )
         return await self._call_with_fallback(prompt)
+
+    async def generate_morning_greeting(
+        self,
+        *,
+        summary_date: date,
+        summaries: Sequence[str],
+    ) -> str:
+        summary_lines = "\n".join(f"- {summary}" for summary in summaries)
+        system_prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Ты готовишь короткое доброе утреннее сообщение для семейного Telegram-чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Опирайся только на переданные сводки за вчера.\n"
+            "Тон должен быть тёплым, поддерживающим, коротким и естественным.\n"
+            "Если во вчерашних сводках есть планы, дела или важные события, можно мягко их упомянуть.\n"
+            "Если есть неприятные или тяжёлые события, не повторяй болезненные детали и не драматизируй.\n"
+            "Лучше использовать мягкие формулировки вроде пожелания спокойного и хорошего дня.\n"
+            "Ответ должен быть компактным, примерно 1-3 коротких предложения.\n"
+        )
+        user_prompt = (
+            f"Дата сводок: {summary_date.isoformat()}\n"
+            f"Сводки за вчера:\n{summary_lines}\n\n"
+            "Сформулируй одно короткое утреннее сообщение для семьи."
+        )
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)

@@ -568,6 +568,37 @@ class PgSessionMemoryRepository(SessionMemoryRepository):
                         (session_id,),
                     )
 
+    async def list_completed_sessions_for_date(
+        self,
+        *,
+        chat_id: int,
+        local_date: date,
+    ) -> list[ChatSession]:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT id,
+                           chat_id,
+                           local_date,
+                           started_at_utc,
+                           expires_at_utc,
+                           completed_at_utc,
+                           status,
+                           message_count,
+                           summary_text
+                    FROM chat_sessions
+                    WHERE chat_id = %s
+                      AND local_date = %s
+                      AND status = 'completed'
+                      AND summary_text IS NOT NULL
+                    ORDER BY started_at_utc, id
+                    """,
+                    (chat_id, local_date),
+                )
+                rows = await cur.fetchall()
+        return [_row_to_chat_session(row) for row in rows]
+
 
 def _row_to_chat_session(row: dict) -> ChatSession:
     return ChatSession(

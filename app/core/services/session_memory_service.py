@@ -35,6 +35,12 @@ class SessionCompletionResult:
     message_count: int
 
 
+@dataclass
+class MorningSummaryContext:
+    local_date: date
+    summaries: list[str]
+
+
 def _resolve_timezone(tz_name: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_name)
@@ -149,6 +155,20 @@ class SessionMemoryService:
                 )
             )
         return results
+
+    async def get_yesterday_completed_summaries(
+        self,
+        *,
+        chat_id: int,
+        as_of_utc: datetime | None = None,
+    ) -> MorningSummaryContext:
+        normalized_as_of = _normalize_utc(as_of_utc or datetime.now(timezone.utc))
+        await self.complete_expired_sessions(as_of_utc=normalized_as_of)
+        local_today = self._local_date(normalized_as_of)
+        yesterday = local_today - timedelta(days=1)
+        sessions = await self._repo.list_completed_sessions_for_date(chat_id=chat_id, local_date=yesterday)
+        summaries = [session.summary_text.strip() for session in sessions if session.summary_text and session.summary_text.strip()]
+        return MorningSummaryContext(local_date=yesterday, summaries=summaries)
 
     def _local_date(self, value: datetime) -> date:
         return value.astimezone(self._tz).date()

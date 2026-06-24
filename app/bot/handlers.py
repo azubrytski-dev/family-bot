@@ -106,8 +106,10 @@ async def _handle_test_command(
     bot,
     config: AppConfig,
     activity_service: ActivityService,
+    ai_service: AiService,
     weather_service: WeatherService,
     chat_registry: ChatRegistryService,
+    session_memory_service: SessionMemoryService | None,
     logger: logging.Logger,
 ) -> bool:
     if not await chat_registry.is_chat_test_allowed(message.chat.id):
@@ -126,6 +128,8 @@ async def _handle_test_command(
         config=config,
         activity_service=activity_service,
         weather_service=weather_service,
+        ai_service=ai_service,
+        session_memory_service=session_memory_service,
     )
     return True
 
@@ -223,8 +227,10 @@ def setup_handlers(
                 bot=bot,
                 config=config,
                 activity_service=activity_service,
+                ai_service=ai_service,
                 weather_service=weather_service,
                 chat_registry=chat_registry,
+                session_memory_service=session_memory_service,
                 logger=logger,
             )
             if handled:

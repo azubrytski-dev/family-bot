@@ -147,7 +147,16 @@ async def main() -> None:
 
         if config.enable_scheduler:
             scheduler = AsyncIOScheduler()
-            await setup_scheduler(scheduler, bot, config, activity_service, weather_service, scheduler_job_repo)
+            await setup_scheduler(
+                scheduler,
+                bot,
+                config,
+                activity_service,
+                weather_service,
+                ai_service,
+                session_memory_service,
+                scheduler_job_repo,
+            )
             scheduler.start()
 
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
