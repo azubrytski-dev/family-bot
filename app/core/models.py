@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass
@@ -71,3 +71,31 @@ class WeatherForecast:
     daily_precipitation_probability_max: int
     daily_wind_gust_max_km_h: float
     severe_alerts: list[SevereWeatherAlert]
+
+
+@dataclass
+class ChatSession:
+    id: int
+    chat_id: int
+    local_date: date
+    started_at_utc: datetime
+    expires_at_utc: datetime
+    completed_at_utc: datetime | None
+    status: str
+    message_count: int
+    summary_text: str | None
+
+
+@dataclass
+class SessionMessage:
+    id: int
+    session_id: int
+    chat_id: int
+    telegram_message_id: int
+    user_id: int
+    username: str | None
+    display_name: str | None
+    message_text: str
+    message_ts_utc: datetime
+    local_date: date
+    is_reply_to_bot: bool

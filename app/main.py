@@ -17,6 +17,7 @@ from app.core.config import get_config
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
+from app.core.services.session_memory_service import SessionMemoryService
 from app.core.services.weather_service import WeatherService
 from app.integrations.ai.openai_client import OpenAIClient
 from app.integrations.weather.client import OpenMeteoWeatherClient
@@ -25,6 +26,7 @@ from app.storage.pg_repo import (
     PgActivityRepository,
     PgAppConfigRepository,
     PgChatRegistryRepository,
+    PgSessionMemoryRepository,
     PgSchedulerJobRepository,
 )
 
@@ -105,6 +107,7 @@ async def main() -> None:
         app_config_repo = PgAppConfigRepository(config.postgres_url)
         chat_registry_repo = PgChatRegistryRepository(config.postgres_url)
         scheduler_job_repo = PgSchedulerJobRepository(config.postgres_url)
+        session_memory_repo = PgSessionMemoryRepository(config.postgres_url)
 
         activity_service = ActivityService(repo=activity_repo)
         chat_registry_service = ChatRegistryService(repo=chat_registry_repo)
@@ -116,6 +119,11 @@ async def main() -> None:
         weather_client = OpenMeteoWeatherClient()
 
         ai_service = AiService(primary=openai_client)
+        session_memory_service = SessionMemoryService(
+            repo=session_memory_repo,
+            summary_generator=ai_service,
+            tz_name=config.tz_name,
+        )
         weather_service = WeatherService(
             config_repo=app_config_repo,
             weather_client=weather_client,
@@ -130,6 +138,7 @@ async def main() -> None:
             ai_service,
             weather_service,
             chat_registry_service,
+            session_memory_service,
             bot_me.username,
             bot_me.id,
         )

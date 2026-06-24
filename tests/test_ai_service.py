@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import pytest
 
+from app.core.models import SessionMessage
 from app.core.services.ai_service import AiService, BASE_FAMILY_PROMPT
 
 
@@ -78,3 +81,36 @@ async def test_generate_weather_morning_summary_uses_system_prompt_and_template(
     assert "Первая строка: дата" in client.last_user_prompt
     assert '"city":"Minsk"' in client.last_user_prompt
     assert '"city":"Tbilisi"' in client.last_user_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_session_summary_uses_safe_russian_prompt():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    await service.generate_session_summary(
+        started_at_utc=datetime.fromisoformat("2026-06-23T08:00:00+00:00"),
+        completed_at_utc=datetime.fromisoformat("2026-06-23T14:00:00+00:00"),
+        messages=[
+            SessionMessage(
+                id=1,
+                session_id=1,
+                chat_id=1,
+                telegram_message_id=10,
+                user_id=101,
+                username="andrei",
+                display_name="Andrei",
+                message_text="У Алены завтра экзамен.",
+                message_ts_utc=datetime.fromisoformat("2026-06-23T09:00:00+00:00"),
+                local_date=date.fromisoformat("2026-06-23"),
+                is_reply_to_bot=False,
+            )
+        ],
+    )
+
+    assert client.last_prompt is not None
+    assert BASE_FAMILY_PROMPT in client.last_prompt
+    assert "Максимум 500 символов" in client.last_prompt
+    assert "не драматизируй" in client.last_prompt
+    assert "Andrei" in client.last_prompt
+    assert "У Алены завтра экзамен." in client.last_prompt

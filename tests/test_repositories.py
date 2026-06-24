@@ -19,6 +19,7 @@ from app.storage.pg_repo import (
     PgActivityRepository,
     PgAppConfigRepository,
     PgChatRegistryRepository,
+    PgSessionMemoryRepository,
     PgSchedulerJobRepository,
 )
 
@@ -257,8 +258,66 @@ async def test_pg_chat_registry_lists_only_approved_chats(test_database_url: str
 
     async with conn.cursor() as cur:
         await cur.execute("DELETE FROM chats WHERE chat_id = %s", (test_chat_id,))
-
     await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_pg_session_memory_repo_archives_session_and_deletes_messages(test_database_url: str):
+    repo = PgSessionMemoryRepository(test_database_url)
+    started_at = datetime(2026, 6, 23, 8, 0, tzinfo=timezone.utc)
+    expires_at = datetime(2026, 6, 23, 14, 0, tzinfo=timezone.utc)
+
+    session = await repo.create_session(
+        chat_id=701,
+        local_date=started_at.date(),
+        started_at_utc=started_at,
+        expires_at_utc=expires_at,
+    )
+    await repo.add_message(
+        chat_id=701,
+        session_id=session.id,
+        telegram_message_id=1001,
+        user_id=501,
+        username="andrei",
+        display_name="Andrei",
+        message_text="Собираемся в поездку",
+        message_ts_utc=started_at,
+        local_date=started_at.date(),
+        is_reply_to_bot=True,
+    )
+
+    messages = await repo.list_session_messages(session.id)
+    assert len(messages) == 1
+    assert messages[0].is_reply_to_bot is True
+
+    await repo.archive_session(
+        session_id=session.id,
+        completed_at_utc=expires_at,
+        summary_text="Андрей обсуждал планы на поездку.",
+    )
+
+    conn = await psycopg.AsyncConnection.connect(test_database_url)
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """
+            SELECT status, completed_at_utc, summary_text, message_count
+            FROM chat_sessions
+            WHERE id = %s
+            """,
+            (session.id,),
+        )
+        row = await cur.fetchone()
+        await cur.execute("SELECT COUNT(*) AS count FROM chat_messages WHERE session_id = %s", (session.id,))
+        message_row = await cur.fetchone()
+    await conn.close()
+
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["completed_at_utc"] == expires_at
+    assert row["summary_text"] == "Андрей обсуждал планы на поездку."
+    assert row["message_count"] == 1
+    assert message_row is not None
+    assert message_row["count"] == 0
 
 
 @pytest.mark.asyncio

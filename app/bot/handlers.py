@@ -13,6 +13,7 @@ from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
+from app.core.services.session_memory_service import SessionMemoryService
 from app.core.services.weather_service import WeatherService
 
 
@@ -20,6 +21,12 @@ def _message_text(message: Message | None) -> str:
     if message is None:
         return ""
     return (message.text or message.caption or "").strip()
+
+
+def _message_storage_text(message: Message | None) -> str:
+    if message is None:
+        return ""
+    return (message.text or "").strip()
 
 
 def _is_ai_trigger(
@@ -58,6 +65,13 @@ def _build_ai_context(message: Message) -> str:
         )
 
     return f"Автор: {author}\nСообщение: {user_message}"
+
+
+def _is_reply_to_bot(message: Message, bot_user_id: int | None) -> bool:
+    if bot_user_id is None:
+        return False
+    reply_from = getattr(getattr(message, "reply_to_message", None), "from_user", None)
+    return reply_from is not None and reply_from.id == bot_user_id
 
 
 def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
@@ -124,6 +138,7 @@ def setup_handlers(
     ai_service: AiService,
     weather_service: WeatherService,
     chat_registry: ChatRegistryService,
+    session_memory_service: SessionMemoryService | None,
     bot_username: str | None,
     bot_user_id: int | None,
 ) -> None:
@@ -214,6 +229,21 @@ def setup_handlers(
             )
             if handled:
                 return
+
+        if session_memory_service is not None and message.from_user is not None:
+            raw_text = _message_storage_text(message)
+            if raw_text:
+                message_ts = getattr(message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_message(
+                    chat_id=message.chat.id,
+                    telegram_message_id=message.message_id,
+                    user_id=message.from_user.id,
+                    username=message.from_user.username,
+                    display_name=message.from_user.full_name,
+                    message_text=raw_text,
+                    message_ts_utc=message_ts,
+                    is_reply_to_bot=_is_reply_to_bot(message, bot_user_id),
+                )
 
         if config.enable_activity_tracking and message.from_user is not None:
             now = datetime.now(timezone.utc)

@@ -7,12 +7,13 @@ from typing import AsyncIterator
 import psycopg
 from psycopg.rows import dict_row
 
-from app.core.models import ChatRecord, SchedulerJob
+from app.core.models import ChatRecord, ChatSession, SchedulerJob, SessionMessage
 from app.core.services.activity_service import ActivityRepository
 from app.storage.repo import (
     AppConfigRepository,
     ChatRegistryRepository,
     SchedulerJobRepository,
+    SessionMemoryRepository,
 )
 
 
@@ -346,3 +347,253 @@ class PgAppConfigRepository(AppConfigRepository):
                 )
                 rows = await cur.fetchall()
         return [str(row["value"]) for row in rows]
+
+
+class PgSessionMemoryRepository(SessionMemoryRepository):
+    def __init__(self, postgres_url: str) -> None:
+        self._postgres_url = postgres_url
+
+    @asynccontextmanager
+    async def _connection(self) -> AsyncIterator[psycopg.AsyncConnection]:
+        conn = await psycopg.AsyncConnection.connect(self._postgres_url, autocommit=True)
+        try:
+            yield conn
+        finally:
+            await conn.close()
+
+    async def get_open_session(self, chat_id: int) -> ChatSession | None:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT id,
+                           chat_id,
+                           local_date,
+                           started_at_utc,
+                           expires_at_utc,
+                           completed_at_utc,
+                           status,
+                           message_count,
+                           summary_text
+                    FROM chat_sessions
+                    WHERE chat_id = %s
+                      AND status = 'open'
+                    """,
+                    (chat_id,),
+                )
+                row = await cur.fetchone()
+        if row is None:
+            return None
+        return _row_to_chat_session(row)
+
+    async def create_session(
+        self,
+        chat_id: int,
+        local_date: date,
+        started_at_utc: datetime,
+        expires_at_utc: datetime,
+    ) -> ChatSession:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO chat_sessions (
+                        chat_id,
+                        local_date,
+                        started_at_utc,
+                        expires_at_utc,
+                        status,
+                        message_count
+                    )
+                    VALUES (%s, %s, %s, %s, 'open', 0)
+                    RETURNING id,
+                              chat_id,
+                              local_date,
+                              started_at_utc,
+                              expires_at_utc,
+                              completed_at_utc,
+                              status,
+                              message_count,
+                              summary_text
+                    """,
+                    (chat_id, local_date, started_at_utc, expires_at_utc),
+                )
+                row = await cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to create chat session.")
+        return _row_to_chat_session(row)
+
+    async def add_message(
+        self,
+        *,
+        chat_id: int,
+        session_id: int,
+        telegram_message_id: int,
+        user_id: int,
+        username: str | None,
+        display_name: str | None,
+        message_text: str,
+        message_ts_utc: datetime,
+        local_date: date,
+        is_reply_to_bot: bool,
+    ) -> None:
+        async with self._connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO chat_messages (
+                            chat_id,
+                            session_id,
+                            telegram_message_id,
+                            user_id,
+                            username,
+                            display_name,
+                            message_text,
+                            message_ts_utc,
+                            local_date,
+                            is_reply_to_bot
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chat_id, telegram_message_id) DO NOTHING
+                        """,
+                        (
+                            chat_id,
+                            session_id,
+                            telegram_message_id,
+                            user_id,
+                            username,
+                            display_name,
+                            message_text,
+                            message_ts_utc,
+                            local_date,
+                            is_reply_to_bot,
+                        ),
+                    )
+                    await cur.execute(
+                        """
+                        UPDATE chat_sessions
+                        SET message_count = (
+                                SELECT COUNT(*)
+                                FROM chat_messages
+                                WHERE session_id = %s
+                            ),
+                            updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (session_id, session_id),
+                    )
+
+    async def list_expired_open_sessions(self, as_of_utc: datetime) -> list[ChatSession]:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT id,
+                           chat_id,
+                           local_date,
+                           started_at_utc,
+                           expires_at_utc,
+                           completed_at_utc,
+                           status,
+                           message_count,
+                           summary_text
+                    FROM chat_sessions
+                    WHERE status = 'open'
+                      AND expires_at_utc <= %s
+                    ORDER BY expires_at_utc, id
+                    """,
+                    (as_of_utc,),
+                )
+                rows = await cur.fetchall()
+        return [_row_to_chat_session(row) for row in rows]
+
+    async def list_session_messages(self, session_id: int) -> list[SessionMessage]:
+        async with self._connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT id,
+                           session_id,
+                           chat_id,
+                           telegram_message_id,
+                           user_id,
+                           username,
+                           display_name,
+                           message_text,
+                           message_ts_utc,
+                           local_date,
+                           is_reply_to_bot
+                    FROM chat_messages
+                    WHERE session_id = %s
+                    ORDER BY message_ts_utc, id
+                    """,
+                    (session_id,),
+                )
+                rows = await cur.fetchall()
+        return [_row_to_session_message(row) for row in rows]
+
+    async def archive_session(
+        self,
+        *,
+        session_id: int,
+        completed_at_utc: datetime,
+        summary_text: str,
+    ) -> None:
+        async with self._connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE chat_sessions
+                        SET status = 'completed',
+                            completed_at_utc = %s,
+                            summary_text = %s,
+                            message_count = (
+                                SELECT COUNT(*)
+                                FROM chat_messages
+                                WHERE session_id = %s
+                            ),
+                            updated_at = NOW()
+                        WHERE id = %s
+                          AND status = 'open'
+                        """,
+                        (completed_at_utc, summary_text, session_id, session_id),
+                    )
+                    await cur.execute(
+                        """
+                        DELETE FROM chat_messages
+                        WHERE session_id = %s
+                        """,
+                        (session_id,),
+                    )
+
+
+def _row_to_chat_session(row: dict) -> ChatSession:
+    return ChatSession(
+        id=int(row["id"]),
+        chat_id=int(row["chat_id"]),
+        local_date=row["local_date"],
+        started_at_utc=row["started_at_utc"],
+        expires_at_utc=row["expires_at_utc"],
+        completed_at_utc=row["completed_at_utc"],
+        status=str(row["status"]),
+        message_count=int(row["message_count"]),
+        summary_text=row["summary_text"],
+    )
+
+
+def _row_to_session_message(row: dict) -> SessionMessage:
+    return SessionMessage(
+        id=int(row["id"]),
+        session_id=int(row["session_id"]),
+        chat_id=int(row["chat_id"]),
+        telegram_message_id=int(row["telegram_message_id"]),
+        user_id=int(row["user_id"]),
+        username=row["username"],
+        display_name=row["display_name"],
+        message_text=str(row["message_text"]),
+        message_ts_utc=row["message_ts_utc"],
+        local_date=row["local_date"],
+        is_reply_to_bot=bool(row["is_reply_to_bot"]),
+    )

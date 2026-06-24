@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Protocol
+from datetime import datetime
+from typing import Protocol, Sequence
+
+from app.core.models import SessionMessage
 
 
 BASE_FAMILY_PROMPT = (
@@ -120,3 +123,35 @@ class AiService:
             f"{weather_payload}"
         )
         return await self._call_messages_with_fallback(system_prompt, user_prompt)
+
+    async def generate_session_summary(
+        self,
+        *,
+        started_at_utc: datetime,
+        completed_at_utc: datetime,
+        messages: Sequence[SessionMessage],
+    ) -> str:
+        transcript = "\n".join(
+            (
+                f"- {message.message_ts_utc.isoformat()} | "
+                f"{message.display_name or message.username or f'id:{message.user_id}'} | "
+                f"reply_to_bot={'yes' if message.is_reply_to_bot else 'no'} | "
+                f"{message.message_text}"
+            )
+            for message in messages
+        )
+        prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Сделай короткую семейную сводку по завершённой сессии чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Максимум 500 символов.\n"
+            "Укажи, кто был активен, какие были ключевые темы или планы, и общий тон, только если он очевиден.\n"
+            "Не пересказывай чат дословно, не цитируй слишком много и не добавляй чувствительных деталей.\n"
+            "Если в сообщениях есть что-то тяжёлое или негативное, не драматизируй и не повторяй болезненные детали.\n"
+            "Используй тёплый, нейтральный и практичный тон.\n\n"
+            f"Сессия началась: {started_at_utc.isoformat()}\n"
+            f"Сессия завершена: {completed_at_utc.isoformat()}\n"
+            f"Сообщения:\n{transcript}\n\n"
+            "Сформулируй одну компактную сводку для памяти бота."
+        )
+        return await self._call_with_fallback(prompt)
