@@ -17,7 +17,8 @@ Drive a task from local understanding to apply-ready verification without skippi
    - code review;
    - performance review;
    - calamity review.
-7. Summarize:
+7. When a meaningful milestone is complete and verified, use the `commit-workflow` skill and create a focused checkpoint commit before moving on.
+8. Summarize:
    - what changed;
    - what was verified;
    - what remains risky or deferred.
@@ -29,6 +30,7 @@ Drive a task from local understanding to apply-ready verification without skippi
 - Prefer scheduler-driven behavior for recurring outbound messages.
 - Treat migrations as append-only history.
 - Avoid direct business-logic dependence on provider-specific clients or SQL details.
+- After a completed milestone, prefer a small intentional commit over carrying a large uncommitted batch forward.
 
 ## Verification Commands
 
