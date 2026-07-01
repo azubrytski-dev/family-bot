@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import asyncio
+from datetime import datetime, timezone
+import httpx
 import logging
+from typing import Awaitable, Callable, Protocol, TypeVar
 
 from aiogram import Bot
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from pytz import timezone as tz
@@ -21,6 +23,18 @@ from app.storage.repo import SchedulerJobRepository
 SUPPORTED_JOB_TYPES = {"good_morning", "good_night_and_activity", "weather_morning", "weather_alert_check"}
 SESSION_EXPIRY_JOB_NAME = "session_memory_expiry"
 SESSION_EXPIRY_INTERVAL_MINUTES = 60
+SCHEDULED_RETRY_ATTEMPTS = 3
+_T = TypeVar("_T")
+
+
+class JobScheduler(Protocol):
+    def add_job(
+        self,
+        func: object,
+        trigger: object,
+        args: list[object] | None = None,
+        name: str | None = None,
+    ) -> None: ...
 
 
 async def execute_scheduler_job(
@@ -53,6 +67,8 @@ async def execute_scheduler_job(
             bot_username=bot_username,
         )
 
+    logger = logging.getLogger("scheduler")
+
     if job_type == "good_morning":
         fallback_message = format_good_morning()
         if ai_service is None or session_memory_service is None:
@@ -60,25 +76,43 @@ async def execute_scheduler_job(
             return
         try:
             if use_test_morning_context:
-                morning_context = await session_memory_service.get_test_morning_summaries(
+                morning_context = await _run_scheduled_with_retries(
+                    operation_name="get_test_morning_summaries",
+                    job_type=job_type,
                     chat_id=chat_id,
-                    as_of_utc=now_utc or datetime.now(timezone.utc),
+                    logger=logger,
+                    factory=lambda: session_memory_service.get_test_morning_summaries(
+                        chat_id=chat_id,
+                        as_of_utc=now_utc or datetime.now(timezone.utc),
+                    ),
                 )
             else:
-                morning_context = await session_memory_service.get_yesterday_completed_summaries(
+                morning_context = await _run_scheduled_with_retries(
+                    operation_name="get_yesterday_completed_summaries",
+                    job_type=job_type,
                     chat_id=chat_id,
-                    as_of_utc=now_utc or datetime.now(timezone.utc),
+                    logger=logger,
+                    factory=lambda: session_memory_service.get_yesterday_completed_summaries(
+                        chat_id=chat_id,
+                        as_of_utc=now_utc or datetime.now(timezone.utc),
+                    ),
                 )
             if not morning_context.summaries:
                 await _send_message(fallback_message)
                 return
-            greeting = await ai_service.generate_morning_greeting(
-                summary_date=morning_context.local_date,
-                summaries=morning_context.summaries,
+            greeting = await _run_scheduled_with_retries(
+                operation_name="generate_morning_greeting",
+                job_type=job_type,
+                chat_id=chat_id,
+                logger=logger,
+                factory=lambda: ai_service.generate_morning_greeting(
+                    summary_date=morning_context.local_date,
+                    summaries=morning_context.summaries,
+                ),
             )
             await _send_message(greeting)
         except Exception:
-            logging.getLogger("scheduler").exception(
+            logger.exception(
                 "Falling back to static morning message for chat %s after summary-aware generation failed.",
                 chat_id,
             )
@@ -86,11 +120,24 @@ async def execute_scheduler_job(
         return
 
     if job_type == "weather_morning":
-        await _send_message(await weather_service.build_morning_forecast_summary())
+        summary = await _run_scheduled_with_retries(
+            operation_name="build_morning_forecast_summary",
+            job_type=job_type,
+            chat_id=chat_id,
+            logger=logger,
+            factory=weather_service.build_morning_forecast_summary,
+        )
+        await _send_message(summary)
         return
 
     if job_type == "weather_alert_check":
-        alerts = await weather_service.build_severe_weather_alerts()
+        alerts = await _run_scheduled_with_retries(
+            operation_name="build_severe_weather_alerts",
+            job_type=job_type,
+            chat_id=chat_id,
+            logger=logger,
+            factory=weather_service.build_severe_weather_alerts,
+        )
         for alert in alerts:
             await _send_message(alert)
         return
@@ -103,22 +150,34 @@ async def execute_scheduler_job(
         await _send_message(fallback_message)
     else:
         try:
-            evening_context = await session_memory_service.get_evening_summaries(
+            evening_context = await _run_scheduled_with_retries(
+                operation_name="get_evening_summaries",
+                job_type=job_type,
                 chat_id=chat_id,
-                as_of_utc=now_utc or datetime.now(timezone.utc),
+                logger=logger,
+                factory=lambda: session_memory_service.get_evening_summaries(
+                    chat_id=chat_id,
+                    as_of_utc=now_utc or datetime.now(timezone.utc),
+                ),
             )
             if not evening_context.yesterday_summaries and not evening_context.today_summaries:
                 await _send_message(fallback_message)
             else:
-                greeting = await ai_service.generate_evening_greeting(
-                    yesterday_date=evening_context.yesterday_date,
-                    today_date=evening_context.today_date,
-                    yesterday_summaries=evening_context.yesterday_summaries,
-                    today_summaries=evening_context.today_summaries,
+                greeting = await _run_scheduled_with_retries(
+                    operation_name="generate_evening_greeting",
+                    job_type=job_type,
+                    chat_id=chat_id,
+                    logger=logger,
+                    factory=lambda: ai_service.generate_evening_greeting(
+                        yesterday_date=evening_context.yesterday_date,
+                        today_date=evening_context.today_date,
+                        yesterday_summaries=evening_context.yesterday_summaries,
+                        today_summaries=evening_context.today_summaries,
+                    ),
                 )
                 await _send_message(greeting)
         except Exception:
-            logging.getLogger("scheduler").exception(
+            logger.exception(
                 "Falling back to static evening message for chat %s after summary-aware generation failed.",
                 chat_id,
             )
@@ -133,7 +192,13 @@ async def execute_scheduler_job(
 
 async def execute_session_expiry_job(session_memory_service: SessionMemoryService) -> None:
     logger = logging.getLogger("scheduler")
-    completed_sessions = await session_memory_service.complete_expired_sessions()
+    completed_sessions = await _run_scheduled_with_retries(
+        operation_name="complete_expired_sessions",
+        job_type=SESSION_EXPIRY_JOB_NAME,
+        chat_id=None,
+        logger=logger,
+        factory=session_memory_service.complete_expired_sessions,
+    )
     if completed_sessions:
         logger.info(
             "Completed %s expired chat session(s) during housekeeping run.",
@@ -141,8 +206,38 @@ async def execute_session_expiry_job(session_memory_service: SessionMemoryServic
         )
 
 
+async def _run_scheduled_with_retries(
+    *,
+    operation_name: str,
+    job_type: str,
+    chat_id: int | None,
+    logger: logging.Logger,
+    factory: Callable[[], Awaitable[_T]],
+) -> _T:
+    for attempt in range(SCHEDULED_RETRY_ATTEMPTS):
+        try:
+            return await factory()
+        except Exception as exc:
+            logger.warning(
+                "Scheduled operation failed.",
+                extra={
+                    "operation_name": operation_name,
+                    "job_type": job_type,
+                    "chat_id": chat_id,
+                    "attempt": attempt + 1,
+                    "max_attempts": SCHEDULED_RETRY_ATTEMPTS,
+                },
+                exc_info=True,
+            )
+            if attempt == SCHEDULED_RETRY_ATTEMPTS - 1:
+                raise
+            delay_seconds = 0.5 if isinstance(exc, httpx.ConnectTimeout) else 1.0
+            await asyncio.sleep(delay_seconds)
+    raise RuntimeError("Scheduled retry loop ended unexpectedly.")
+
+
 async def setup_scheduler(
-    scheduler: AsyncIOScheduler,
+    scheduler: JobScheduler,
     bot: Bot,
     config: AppConfig,
     activity_service: ActivityService,

@@ -4,12 +4,16 @@ import logging
 from types import SimpleNamespace
 from typing import cast
 
+import httpx
 import pytest
 from aiogram.types import Message
 
 from app.bot.handlers import (
+    AI_REPLY_FALLBACK,
+    WEATHER_TEST_FALLBACK,
     _build_reply_context,
     _build_ai_context,
+    _generate_ai_reply,
     _handle_test_command,
     _is_active_bot_status,
     _is_ai_trigger,
@@ -88,8 +92,38 @@ class DummyActivityService:
 
 
 class DummyAiService:
+    def __init__(self, reply: str = "Доброе утро!") -> None:
+        self.reply = reply
+        self.reply_calls: list[str] = []
+
     async def generate_morning_greeting(self, *, summary_date, summaries):  # type: ignore[no-untyped-def]
         return "Доброе утро!"
+
+    async def reply_to_mention(self, context: str) -> str:
+        self.reply_calls.append(context)
+        return self.reply
+
+
+class FailingAiService(DummyAiService):
+    async def reply_to_mention(self, context: str) -> str:
+        raise RuntimeError("ai failed")
+
+
+class FailingWeatherService(DummyWeatherService):
+    async def build_morning_forecast_summary(self) -> str:
+        raise RuntimeError("weather failed")
+
+
+class FlakyWeatherService(DummyWeatherService):
+    def __init__(self) -> None:
+        super().__init__(summary="В Минске прохладно.")
+        self.attempts = 0
+
+    async def build_morning_forecast_summary(self) -> str:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise httpx.ConnectTimeout("connect timeout")
+        return await super().build_morning_forecast_summary()
 
 
 class DummyBot:
@@ -311,3 +345,63 @@ async def test_handle_test_command_rejects_when_test_commands_disabled(monkeypat
     assert handled is True
     assert weather_service.calls == 0
     assert message.answers == ["Тестовые команды для этого чата отключены."]
+
+
+@pytest.mark.asyncio
+async def test_handle_test_command_falls_back_when_weather_generation_fails(monkeypatch: pytest.MonkeyPatch):
+    message = DummyMessage()
+    session_memory_service = DummySessionMemoryService()
+
+    handled = await _handle_test_command(
+        action="weather_test",
+        message=message,  # type: ignore[arg-type]
+        bot=DummyBot(),
+        config=_make_config(monkeypatch),
+        activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
+        weather_service=FailingWeatherService(),  # type: ignore[arg-type]
+        chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+        bot_username="family_bot",
+        logger=logging.getLogger("test"),
+    )
+
+    assert handled is True
+    assert message.answers == [WEATHER_TEST_FALLBACK]
+    assert session_memory_service.calls[0]["message_text"] == WEATHER_TEST_FALLBACK
+
+
+@pytest.mark.asyncio
+async def test_handle_test_command_retries_once_for_interactive_connect_timeout(monkeypatch: pytest.MonkeyPatch):
+    message = DummyMessage()
+    weather_service = FlakyWeatherService()
+
+    handled = await _handle_test_command(
+        action="weather_test",
+        message=message,  # type: ignore[arg-type]
+        bot=DummyBot(),
+        config=_make_config(monkeypatch),
+        activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
+        weather_service=weather_service,  # type: ignore[arg-type]
+        chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=None,
+        bot_username="family_bot",
+        logger=logging.getLogger("test"),
+    )
+
+    assert handled is True
+    assert weather_service.attempts == 2
+    assert message.answers == ["В Минске прохладно."]
+
+
+@pytest.mark.asyncio
+async def test_generate_ai_reply_falls_back_when_ai_call_fails():
+    reply = await _generate_ai_reply(
+        ai_service=FailingAiService(),  # type: ignore[arg-type]
+        context="session-based-context",
+        chat_id=123,
+        logger=logging.getLogger("test"),
+    )
+
+    assert reply == AI_REPLY_FALLBACK

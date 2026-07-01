@@ -48,6 +48,9 @@ async def test_reply_to_mention_mentions_reply_context_format():
 
     assert client.last_system_prompt is not None
     assert "не знаешь" not in client.last_system_prompt.lower()
+    assert "Не начинай каждый ответ заново с приветствия" in client.last_system_prompt
+    assert "Если есть признаки продолжающегося разговора" in client.last_system_prompt
+    assert "Приветствие допустимо только если это действительно похоже на самое первое сообщение" in client.last_system_prompt
     assert "Последние сообщения автора" in client.last_system_prompt
     assert "главный источник недавнего личного контекста" in client.last_system_prompt
     assert "Последняя погодная сводка бота" in client.last_system_prompt
@@ -137,9 +140,72 @@ async def test_generate_session_summary_uses_safe_russian_prompt():
     assert client.last_prompt is not None
     assert BASE_FAMILY_PROMPT in client.last_prompt
     assert "Максимум 500 символов" in client.last_prompt
+    assert "компактную историю разговора" in client.last_prompt
+    assert "Обязательно укажи имена участников" in client.last_prompt
+    assert "Сохраняй хронологию" in client.last_prompt
     assert "не драматизируй" in client.last_prompt
     assert "Andrei" in client.last_prompt
     assert "У Алены завтра экзамен." in client.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_session_summary_prompt_includes_multi_speaker_history_context():
+    client = DummyClient()
+    service = AiService(primary=client)
+
+    await service.generate_session_summary(
+        started_at_utc=datetime.fromisoformat("2026-06-23T08:00:00+00:00"),
+        completed_at_utc=datetime.fromisoformat("2026-06-23T14:00:00+00:00"),
+        messages=[
+            SessionMessage(
+                id=1,
+                session_id=1,
+                chat_id=1,
+                telegram_message_id=10,
+                user_id=101,
+                username="andrei",
+                display_name="Andrei",
+                message_text="Предлагаю вечером погулять с Малышом.",
+                message_ts_utc=datetime.fromisoformat("2026-06-23T09:00:00+00:00"),
+                local_date=date.fromisoformat("2026-06-23"),
+                is_reply_to_bot=False,
+            ),
+            SessionMessage(
+                id=2,
+                session_id=1,
+                chat_id=1,
+                telegram_message_id=11,
+                user_id=102,
+                username="inna",
+                display_name="Inna",
+                message_text="Я могу купить что-то к ужину.",
+                message_ts_utc=datetime.fromisoformat("2026-06-23T09:30:00+00:00"),
+                local_date=date.fromisoformat("2026-06-23"),
+                is_reply_to_bot=False,
+            ),
+            SessionMessage(
+                id=3,
+                session_id=1,
+                chat_id=1,
+                telegram_message_id=12,
+                user_id=103,
+                username="alyona",
+                display_name="Alyona",
+                message_text="У меня сначала экзамен, потом смогу написать.",
+                message_ts_utc=datetime.fromisoformat("2026-06-23T10:00:00+00:00"),
+                local_date=date.fromisoformat("2026-06-23"),
+                is_reply_to_bot=False,
+            ),
+        ],
+    )
+
+    assert client.last_prompt is not None
+    assert "Andrei" in client.last_prompt
+    assert "Inna" in client.last_prompt
+    assert "Alyona" in client.last_prompt
+    assert "Предлагаю вечером погулять с Малышом." in client.last_prompt
+    assert "Я могу купить что-то к ужину." in client.last_prompt
+    assert "У меня сначала экзамен, потом смогу написать." in client.last_prompt
 
 
 @pytest.mark.asyncio

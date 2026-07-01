@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
+import httpx
 import logging
+from typing import Awaitable, Callable, TypeVar
 
 from aiogram import Dispatcher
 from aiogram.enums import ChatMemberStatus
@@ -15,6 +18,10 @@ from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
 from app.core.services.session_memory_service import SessionMemoryService
 from app.core.services.weather_service import WeatherService
+
+AI_REPLY_FALLBACK = "Сейчас не получилось быстро ответить 😔 Попробуйте ещё раз чуть позже."
+WEATHER_TEST_FALLBACK = "Сейчас не получилось получить погоду 😔 Попробуйте ещё раз чуть позже."
+_T = TypeVar("_T")
 
 
 def _message_text(message: Message | None) -> str:
@@ -143,7 +150,15 @@ async def _handle_test_command(
         return True
 
     if action == "weather_test":
-        reply_text = await weather_service.build_morning_forecast_summary()
+        try:
+            reply_text = await _call_non_scheduled_with_retry(
+                operation_name="weather_test",
+                logger=logger,
+                factory=weather_service.build_morning_forecast_summary,
+            )
+        except Exception:
+            logger.exception("Weather test command failed for chat %s.", message.chat.id)
+            reply_text = WEATHER_TEST_FALLBACK
         sent_message = await message.answer(reply_text)
         if session_memory_service is not None:
             sent_message_id = getattr(sent_message, "message_id", None)
@@ -172,6 +187,46 @@ async def _handle_test_command(
         use_test_morning_context=(action == "good_morning"),
     )
     return True
+
+
+async def _generate_ai_reply(
+    *,
+    ai_service: AiService,
+    context: str,
+    chat_id: int,
+    logger: logging.Logger,
+) -> str:
+    try:
+        return await _call_non_scheduled_with_retry(
+            operation_name="ai_reply",
+            logger=logger,
+            factory=lambda: ai_service.reply_to_mention(context),
+        )
+    except Exception:
+        logger.exception("AI reply generation failed for chat %s.", chat_id)
+        return AI_REPLY_FALLBACK
+
+
+async def _call_non_scheduled_with_retry(
+    *,
+    operation_name: str,
+    logger: logging.Logger,
+    factory: Callable[[], Awaitable[_T]],
+) -> _T:
+    for attempt in range(2):
+        try:
+            return await factory()
+        except httpx.ConnectTimeout:
+            logger.warning(
+                "%s connect timeout on interactive path attempt=%s.",
+                operation_name,
+                attempt + 1,
+                exc_info=True,
+            )
+            if attempt == 1:
+                raise
+            await asyncio.sleep(0.5)
+    raise RuntimeError("Interactive retry loop ended unexpectedly.")
 
 
 def setup_handlers(
@@ -310,7 +365,12 @@ def setup_handlers(
             message,
             session_memory_service=session_memory_service,
         )
-        reply = await ai_service.reply_to_mention(context)
+        reply = await _generate_ai_reply(
+            ai_service=ai_service,
+            context=context,
+            chat_id=message.chat.id,
+            logger=logger,
+        )
         sent_message = await message.answer(reply)
         if session_memory_service is not None:
             sent_message_id = getattr(sent_message, "message_id", None)

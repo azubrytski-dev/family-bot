@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import logging
-from typing import TypedDict
+from typing import Any, TypedDict
 
+import httpx
 import pytest
 
 from app.bot.scheduler import (
@@ -22,9 +25,18 @@ class DummyBot:
     def __init__(self) -> None:
         self.sent_messages: list[tuple[int, str]] = []
 
-    async def send_message(self, chat_id: int, text: str) -> None:
+    async def send_message(self, chat_id: int, text: str) -> "DummySentMessage":
         self.sent_messages.append((chat_id, text))
-        return type("SentMessage", (), {"message_id": 1000 + len(self.sent_messages), "date": datetime(2026, 6, 24, 5, 0, tzinfo=timezone.utc)})()
+        return DummySentMessage(
+            message_id=1000 + len(self.sent_messages),
+            date=datetime(2026, 6, 24, 5, 0, tzinfo=timezone.utc),
+        )
+
+
+@dataclass
+class DummySentMessage:
+    message_id: int
+    date: datetime
 
 
 class ScheduledJobRecord(TypedDict):
@@ -38,7 +50,13 @@ class RecordingScheduler:
     def __init__(self) -> None:
         self.jobs: list[ScheduledJobRecord] = []
 
-    def add_job(self, func, trigger, args=None, name=None):  # type: ignore[no-untyped-def]
+    def add_job(
+        self,
+        func: object,
+        trigger: object,
+        args: Sequence[object] | None = None,
+        name: str | None = None,
+    ) -> None:
         self.jobs.append({"func": func, "trigger": trigger, "args": list(args or []), "name": name})
 
 
@@ -51,16 +69,24 @@ class InMemorySchedulerJobRepo:
 
 
 class InMemoryActivityRepo:
-    async def increment_message_count(self, chat_id, user_id, message_ts, activity_date, username, display_name):  # type: ignore[no-untyped-def]
+    async def increment_message_count(
+        self,
+        chat_id: int,
+        user_id: int,
+        message_ts: datetime,
+        activity_date: date,
+        username: str | None,
+        display_name: str | None,
+    ) -> None:
         return None
 
-    async def get_today_activity(self, chat_id, day):  # type: ignore[no-untyped-def]
+    async def get_today_activity(self, chat_id: int, day: date) -> dict[int, int]:
         return {}
 
-    async def get_chat_members(self, chat_id):  # type: ignore[no-untyped-def]
+    async def get_chat_members(self, chat_id: int) -> list[int]:
         return []
 
-    async def get_chat_member_labels(self, chat_id):  # type: ignore[no-untyped-def]
+    async def get_chat_member_labels(self, chat_id: int) -> dict[int, str]:
         return {}
 
 
@@ -74,6 +100,18 @@ class StubWeatherService:
 
     async def build_severe_weather_alerts(self) -> list[str]:
         return list(self.alerts)
+
+
+class FlakyScheduledWeatherService(StubWeatherService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempts = 0
+
+    async def build_morning_forecast_summary(self) -> str:
+        self.attempts += 1
+        if self.attempts < 3:
+            raise httpx.ConnectTimeout("connect timeout")
+        return await super().build_morning_forecast_summary()
 
 
 class StubAiService:
@@ -136,7 +174,7 @@ class StubSessionMemoryService:
         self.evening_calls: list[tuple[int, datetime | None]] = []
         self.bot_replies: list[dict[str, object]] = []
         self.expiry_calls = 0
-        self.expiry_result: list[object] = []
+        self.expiry_result: list[Any] = []
 
     async def get_yesterday_completed_summaries(
         self,
@@ -184,12 +222,12 @@ class StubSessionMemoryService:
             }
         )
 
-    async def complete_expired_sessions(self) -> list[object]:
+    async def complete_expired_sessions(self) -> list[Any]:
         self.expiry_calls += 1
         return list(self.expiry_result)
 
 
-def _make_config(monkeypatch) -> AppConfig:
+def _make_config(monkeypatch: pytest.MonkeyPatch) -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -510,13 +548,13 @@ async def test_execute_scheduler_job_uses_display_names_in_activity_summary(monk
     weather_service = StubWeatherService()
 
     class InactiveLabelRepo(InMemoryActivityRepo):
-        async def get_today_activity(self, chat_id, day):  # type: ignore[no-untyped-def]
+        async def get_today_activity(self, chat_id: int, day: date) -> dict[int, int]:
             return {100: 1}
 
-        async def get_chat_members(self, chat_id):  # type: ignore[no-untyped-def]
+        async def get_chat_members(self, chat_id: int) -> list[int]:
             return [100, 101]
 
-        async def get_chat_member_labels(self, chat_id):  # type: ignore[no-untyped-def]
+        async def get_chat_member_labels(self, chat_id: int) -> dict[int, str]:
             return {100: "Active User", 101: "Inactive User"}
 
     activity_service = ActivityService(InactiveLabelRepo(), tz_name="Europe/Minsk")  # type: ignore[arg-type]
@@ -610,6 +648,19 @@ async def test_execute_scheduler_job_sends_weather_morning_summary(monkeypatch):
 
     await execute_scheduler_job("weather_morning", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
 
+    assert bot.sent_messages == [(321, "Погода утром готова.")]
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduler_job_retries_scheduled_weather_three_times(monkeypatch):
+    cfg = _make_config(monkeypatch)
+    bot = DummyBot()
+    activity_service = ActivityService(InMemoryActivityRepo())  # type: ignore[arg-type]
+    weather_service = FlakyScheduledWeatherService()
+
+    await execute_scheduler_job("weather_morning", bot, 321, cfg, activity_service, weather_service)  # type: ignore[arg-type]
+
+    assert weather_service.attempts == 3
     assert bot.sent_messages == [(321, "Погода утром готова.")]
 
 

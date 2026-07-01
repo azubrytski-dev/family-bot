@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 
@@ -7,7 +9,10 @@ class OpenAIClient:
     def __init__(self, api_key: str, model: str) -> None:
         self._api_key = api_key
         self._model = model
-        self._client = httpx.AsyncClient(timeout=20.0)
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=25.0, write=10.0, pool=10.0)
+        )
+        self._logger = logging.getLogger(__name__)
 
     async def generate_text(self, prompt: str) -> str:
         return await self.generate_messages(
@@ -36,6 +41,7 @@ class OpenAIClient:
             "max_tokens": 450,
             "temperature": 0.7,
         }
+        self._logger.info("Calling OpenAI chat completions model=%s.", self._model)
         response = await self._client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
