@@ -9,7 +9,7 @@ def format_good_morning() -> str:
 
 
 def format_startup_greeting() -> str:
-    return "Бот снова в строю и готов отвечать. Если что, просто упомяните меня в чате."
+    return "Немного обновился, освежился, вернулся с новымии силами ❤️ Извините если не отвечал."
 
 
 def format_good_night() -> str:

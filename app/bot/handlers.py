@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
+import httpx
 import logging
+from typing import Awaitable, Callable, TypeVar
 
 from aiogram import Dispatcher
 from aiogram.enums import ChatMemberStatus
@@ -13,13 +16,24 @@ from app.core.config import AppConfig
 from app.core.services.activity_service import ActivityService
 from app.core.services.ai_service import AiService
 from app.core.services.chat_service import ChatRegistryService
+from app.core.services.session_memory_service import SessionMemoryService
 from app.core.services.weather_service import WeatherService
+
+AI_REPLY_FALLBACK = "Сейчас не получилось быстро ответить 😔 Попробуйте ещё раз чуть позже."
+WEATHER_TEST_FALLBACK = "Сейчас не получилось получить погоду 😔 Попробуйте ещё раз чуть позже."
+_T = TypeVar("_T")
 
 
 def _message_text(message: Message | None) -> str:
     if message is None:
         return ""
     return (message.text or message.caption or "").strip()
+
+
+def _message_storage_text(message: Message | None) -> str:
+    if message is None:
+        return ""
+    return (message.text or "").strip()
 
 
 def _is_ai_trigger(
@@ -60,6 +74,37 @@ def _build_ai_context(message: Message) -> str:
     return f"Автор: {author}\nСообщение: {user_message}"
 
 
+async def _build_reply_context(
+    message: Message,
+    *,
+    session_memory_service: SessionMemoryService | None,
+) -> str:
+    if session_memory_service is None:
+        return _build_ai_context(message)
+
+    author = (
+        getattr(message.from_user, "full_name", None)
+        or getattr(message.from_user, "username", None)
+        or "Unknown"
+    )
+    message_ts = getattr(message, "date", None) or datetime.now(timezone.utc)
+    return await session_memory_service.build_reply_context(
+        chat_id=message.chat.id,
+        author_user_id=getattr(getattr(message, "from_user", None), "id", None),
+        author_name=author,
+        message_text=_message_text(message),
+        reply_to_message_text=_message_text(getattr(message, "reply_to_message", None)),
+        as_of_utc=message_ts,
+    )
+
+
+def _is_reply_to_bot(message: Message, bot_user_id: int | None) -> bool:
+    if bot_user_id is None:
+        return False
+    reply_from = getattr(getattr(message, "reply_to_message", None), "from_user", None)
+    return reply_from is not None and reply_from.id == bot_user_id
+
+
 def _is_active_bot_status(status: str | ChatMemberStatus) -> bool:
     status_value = status.value if isinstance(status, ChatMemberStatus) else str(status)
     return status_value in {
@@ -92,8 +137,11 @@ async def _handle_test_command(
     bot,
     config: AppConfig,
     activity_service: ActivityService,
+    ai_service: AiService,
     weather_service: WeatherService,
     chat_registry: ChatRegistryService,
+    session_memory_service: SessionMemoryService | None,
+    bot_username: str | None,
     logger: logging.Logger,
 ) -> bool:
     if not await chat_registry.is_chat_test_allowed(message.chat.id):
@@ -102,7 +150,27 @@ async def _handle_test_command(
         return True
 
     if action == "weather_test":
-        await message.answer(await weather_service.build_morning_forecast_summary())
+        try:
+            reply_text = await _call_non_scheduled_with_retry(
+                operation_name="weather_test",
+                logger=logger,
+                factory=weather_service.build_morning_forecast_summary,
+            )
+        except Exception:
+            logger.exception("Weather test command failed for chat %s.", message.chat.id)
+            reply_text = WEATHER_TEST_FALLBACK
+        sent_message = await message.answer(reply_text)
+        if session_memory_service is not None:
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if sent_message_id is not None:
+                sent_message_ts = getattr(sent_message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_bot_reply(
+                    chat_id=message.chat.id,
+                    telegram_message_id=sent_message_id,
+                    message_text=reply_text,
+                    message_ts_utc=sent_message_ts,
+                    bot_username=bot_username,
+                )
         return True
 
     await execute_scheduler_job(
@@ -112,8 +180,53 @@ async def _handle_test_command(
         config=config,
         activity_service=activity_service,
         weather_service=weather_service,
+        ai_service=ai_service,
+        session_memory_service=session_memory_service,
+        track_bot_replies=True,
+        bot_username=bot_username,
+        use_test_morning_context=(action == "good_morning"),
     )
     return True
+
+
+async def _generate_ai_reply(
+    *,
+    ai_service: AiService,
+    context: str,
+    chat_id: int,
+    logger: logging.Logger,
+) -> str:
+    try:
+        return await _call_non_scheduled_with_retry(
+            operation_name="ai_reply",
+            logger=logger,
+            factory=lambda: ai_service.reply_to_mention(context),
+        )
+    except Exception:
+        logger.exception("AI reply generation failed for chat %s.", chat_id)
+        return AI_REPLY_FALLBACK
+
+
+async def _call_non_scheduled_with_retry(
+    *,
+    operation_name: str,
+    logger: logging.Logger,
+    factory: Callable[[], Awaitable[_T]],
+) -> _T:
+    for attempt in range(2):
+        try:
+            return await factory()
+        except httpx.ConnectTimeout:
+            logger.warning(
+                "%s connect timeout on interactive path attempt=%s.",
+                operation_name,
+                attempt + 1,
+                exc_info=True,
+            )
+            if attempt == 1:
+                raise
+            await asyncio.sleep(0.5)
+    raise RuntimeError("Interactive retry loop ended unexpectedly.")
 
 
 def setup_handlers(
@@ -124,6 +237,7 @@ def setup_handlers(
     ai_service: AiService,
     weather_service: WeatherService,
     chat_registry: ChatRegistryService,
+    session_memory_service: SessionMemoryService | None,
     bot_username: str | None,
     bot_user_id: int | None,
 ) -> None:
@@ -208,12 +322,30 @@ def setup_handlers(
                 bot=bot,
                 config=config,
                 activity_service=activity_service,
+                ai_service=ai_service,
                 weather_service=weather_service,
                 chat_registry=chat_registry,
+                session_memory_service=session_memory_service,
+                bot_username=bot_username,
                 logger=logger,
             )
             if handled:
                 return
+
+        if session_memory_service is not None and message.from_user is not None:
+            raw_text = _message_storage_text(message)
+            if raw_text:
+                message_ts = getattr(message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_message(
+                    chat_id=message.chat.id,
+                    telegram_message_id=message.message_id,
+                    user_id=message.from_user.id,
+                    username=message.from_user.username,
+                    display_name=message.from_user.full_name,
+                    message_text=raw_text,
+                    message_ts_utc=message_ts,
+                    is_reply_to_bot=_is_reply_to_bot(message, bot_user_id),
+                )
 
         if config.enable_activity_tracking and message.from_user is not None:
             now = datetime.now(timezone.utc)
@@ -229,6 +361,25 @@ def setup_handlers(
         if not _is_ai_trigger(message, bot_username=bot_username, bot_user_id=bot_user_id):
             return
 
-        context = _build_ai_context(message)
-        reply = await ai_service.reply_to_mention(context)
-        await message.answer(reply)
+        context = await _build_reply_context(
+            message,
+            session_memory_service=session_memory_service,
+        )
+        reply = await _generate_ai_reply(
+            ai_service=ai_service,
+            context=context,
+            chat_id=message.chat.id,
+            logger=logger,
+        )
+        sent_message = await message.answer(reply)
+        if session_memory_service is not None:
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if sent_message_id is not None:
+                sent_message_ts = getattr(sent_message, "date", None) or datetime.now(timezone.utc)
+                await session_memory_service.record_bot_reply(
+                    chat_id=message.chat.id,
+                    telegram_message_id=sent_message_id,
+                    message_text=reply,
+                    message_ts_utc=sent_message_ts,
+                    bot_username=bot_username,
+                )

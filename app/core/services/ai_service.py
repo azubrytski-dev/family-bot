@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-from typing import Protocol
+from datetime import date, datetime
+from typing import Protocol, Sequence
+
+from app.core.models import SessionMessage
 
 
 BASE_FAMILY_PROMPT = (
     "You are a Telegram bot assistant for the Zubrytski family chat.\n"
     "Family members: Sasha, Inna, Andrei, Alyona.\n\n"
+    "Known family facts:\n"
+    "- The family dog's name is Малыш.\n"
+    "- Alyona's cat's name is Луник.\n"
+    "- Treat these names as known facts.\n"
+    "- Do not say that you do not know these names.\n\n"
     "Your style:\n"
     "- friendly\n"
     "- positive\n"
@@ -49,14 +57,32 @@ class AiService:
             return await self._fallback.generate_messages(system_prompt, user_prompt)
 
     async def reply_to_mention(self, context: str) -> str:
-        prompt = (
+        system_prompt = (
             f"{BASE_FAMILY_PROMPT}\n\n"
             "Тебя упомянули в семейном чате или тебе ответили. Ответь естественно и по‑русски.\n"
             "Если в контексте есть `bot_message` и `user_reply`, учитывай оба сообщения как продолжение диалога.\n\n"
+            "Сначала определи, о чём именно текущее сообщение пользователя, и ответь именно на эту тему.\n"
+            "Не начинай каждый ответ заново с приветствия вроде `Привет`, `Здравствуйте`, `Добрый день`.\n"
+            "Если есть признаки продолжающегося разговора, отвечай сразу по сути, без нового приветствия.\n"
+            "Считай разговор продолжающимся, если в контексте есть `Ответ на сообщение бота`, блок `Недавний контекст текущей сессии`, недавние сообщения бота или короткая реплика-продолжение от пользователя.\n"
+            "Приветствие допустимо только если это действительно похоже на самое первое сообщение в новом разговоре.\n"
+            "Если есть блок `Последние сообщения автора`, используй его как главный источник недавнего личного контекста этого человека.\n"
+            "Если в последних сообщениях автора есть конкретные детали, упомяни их явно в ответе, когда это уместно.\n"
+            "Если пользователь спрашивает о погоде, температуре, ветре, дожде или UV, сначала ищи данные в блоке `Последняя погодная сводка бота`.\n"
+            "Для погодных ответов опирайся на этот блок строго и используй точные значения, если они там указаны.\n"
+            "Не выдумывай погоду, не округляй сильно и не подменяй числа более общими словами, если точные данные уже есть в контексте.\n"
+            "Если в погодной сводке нет нужного параметра, тогда так и скажи кратко, а не придумывай.\n"
+            "Если в контексте есть блок `Недавние сводки сессий`, используй его как фоновую семейную память.\n"
+            "Если в контексте есть блок `Недавний контекст текущей сессии`, учитывай его как недавний ход разговора, включая ответы бота.\n"
+            "Если `reply_to_bot=yes`, это значит, что сообщение было ответом на бота и это важно для связности ответа.\n\n"
+            "Если вопрос касается известных фактов о семье или питомцах, отвечай на основе этих фактов уверенно и без оговорок.\n"
+            "Добавь 1-2 уместных эмодзи, если они делают ответ живее и теплее, но не перегружай сообщение.\n"
+        )
+        user_prompt = (
             f"Сообщение из чата:\n{context}\n\n"
             "Сформулируй короткий, дружелюбный ответ от имени семейного бота."
         )
-        return await self._call_with_fallback(prompt)
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)
 
     async def generate_weather_summary(self, weather_payload: str) -> str:
         prompt = (
@@ -118,5 +144,98 @@ class AiService:
             "- Не опускай предупреждение, если есть гроза, сильный дождь или опасный ветер.\n\n"
             "Данные по погоде:\n"
             f"{weather_payload}"
+        )
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)
+
+    async def generate_session_summary(
+        self,
+        *,
+        started_at_utc: datetime,
+        completed_at_utc: datetime,
+        messages: Sequence[SessionMessage],
+    ) -> str:
+        transcript = "\n".join(
+            (
+                f"- {message.message_ts_utc.isoformat()} | "
+                f"{message.display_name or message.username or f'id:{message.user_id}'} | "
+                f"reply_to_bot={'yes' if message.is_reply_to_bot else 'no'} | "
+                f"{message.message_text}"
+            )
+            for message in messages
+        )
+        prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Сделай короткую семейную сводку по завершённой сессии чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Максимум 500 символов.\n"
+            "Сделай сводку похожей на компактную историю разговора: кто что сказал, предложил, спросил или решил.\n"
+            "Обязательно укажи имена участников рядом с их действиями или репликами, если это помогает понять ход разговора.\n"
+            "Сохраняй хронологию по возможности: сначала ранние темы, потом более поздние.\n"
+            "Укажи, кто был активен, какие были ключевые темы или планы, и общий тон, только если он очевиден.\n"
+            "Не пересказывай чат дословно, не цитируй слишком много и не добавляй чувствительных деталей.\n"
+            "Если в сообщениях есть что-то тяжёлое или негативное, не драматизируй и не повторяй болезненные детали.\n"
+            "Используй тёплый, нейтральный и практичный тон.\n\n"
+            f"Сессия началась: {started_at_utc.isoformat()}\n"
+            f"Сессия завершена: {completed_at_utc.isoformat()}\n"
+            f"Сообщения:\n{transcript}\n\n"
+            "Сформулируй одну компактную сводку для памяти бота."
+        )
+        return await self._call_with_fallback(prompt)
+
+    async def generate_morning_greeting(
+        self,
+        *,
+        summary_date: date,
+        summaries: Sequence[str],
+    ) -> str:
+        summary_lines = "\n".join(f"- {summary}" for summary in summaries)
+        system_prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Ты готовишь короткое доброе утреннее сообщение для семейного Telegram-чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Опирайся только на переданные сводки за вчера.\n"
+            "Тон должен быть тёплым, поддерживающим, коротким и естественным.\n"
+            "Добавь 1-3 уместных эмодзи, если они делают сообщение теплее и живее.\n"
+            "Не перегружай сообщение эмодзи.\n"
+            "Если во вчерашних сводках есть планы, дела или важные события, можно мягко их упомянуть.\n"
+            "Если есть неприятные или тяжёлые события, не повторяй болезненные детали и не драматизируй.\n"
+            "Лучше использовать мягкие формулировки вроде пожелания спокойного и хорошего дня.\n"
+            "Ответ должен быть компактным, примерно 1-3 коротких предложения.\n"
+        )
+        user_prompt = (
+            f"Дата сводок: {summary_date.isoformat()}\n"
+            f"Сводки за вчера:\n{summary_lines}\n\n"
+            "Сформулируй одно короткое утреннее сообщение для семьи."
+        )
+        return await self._call_messages_with_fallback(system_prompt, user_prompt)
+
+    async def generate_evening_greeting(
+        self,
+        *,
+        yesterday_date: date,
+        today_date: date,
+        yesterday_summaries: Sequence[str],
+        today_summaries: Sequence[str],
+    ) -> str:
+        yesterday_lines = "\n".join(f"- {summary}" for summary in yesterday_summaries) or "- нет сводок"
+        today_lines = "\n".join(f"- {summary}" for summary in today_summaries) or "- нет сводок"
+        system_prompt = (
+            f"{BASE_FAMILY_PROMPT}\n\n"
+            "Ты готовишь короткое вечернее сообщение для семейного Telegram-чата.\n"
+            "Обязательно пиши по-русски.\n"
+            "Опирайся на сводки за вчера и за сегодня.\n"
+            "Тон должен быть тёплым, спокойным, семейным и естественным.\n"
+            "Добавь 1-3 уместных эмодзи, если они делают сообщение теплее и живее.\n"
+            "Не перегружай сообщение эмодзи.\n"
+            "Можно коротко упомянуть, как прошёл день, и пожелать спокойной ночи или хорошего вечера.\n"
+            "Если есть неприятные или тяжёлые события, не повторяй болезненные детали и не драматизируй.\n"
+            "Ответ должен быть компактным, примерно 1-3 коротких предложения.\n"
+        )
+        user_prompt = (
+            f"Дата вчерашних сводок: {yesterday_date.isoformat()}\n"
+            f"Вчерашние сводки:\n{yesterday_lines}\n\n"
+            f"Дата сегодняшних сводок: {today_date.isoformat()}\n"
+            f"Сегодняшние сводки:\n{today_lines}\n\n"
+            "Сформулируй одно короткое вечернее сообщение для семьи."
         )
         return await self._call_messages_with_fallback(system_prompt, user_prompt)

@@ -78,3 +78,12 @@ A change is ready to apply when:
 - tests pass for the changed behavior;
 - review findings are addressed or explicitly accepted;
 - risks and follow-ups are documented.
+
+## 7. Milestone Commit
+
+When a meaningful milestone is finished:
+
+- review recent history and current scope;
+- use the `commit-workflow` skill;
+- create a small checkpoint commit with a one-line tagged message such as `(feat): ...`, `(fix): ...`, `(spec): ...`, or `(chore): ...`;
+- prefer committing at milestone boundaries instead of carrying unrelated finished work forward.

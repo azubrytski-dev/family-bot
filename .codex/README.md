@@ -14,6 +14,7 @@ Start with [`AGENTS.md`](/Users/andrei/projects/my_pets/family-bot/AGENTS.md) fo
 - Use the local commands in [`.codex/commands/README.md`](/Users/andrei/projects/my_pets/family-bot/.codex/commands/README.md) for proposal lifecycle tracking.
 - Use the `proposal-planning` skill right after `/propose` when the scaffold needs concrete project-based steps.
 - Use the `apply-workflow` skill for normal implementation tasks.
+- When a milestone is finished and verified, use the `commit-workflow` skill and create a focused checkpoint commit.
 - Treat `/start` as a continue-working command by default, not only a status flip.
 - Use the `system-design-review` skill before migrations, new integrations, or scheduler changes.
 - Use the `performance-review` skill when touching queries, polling, or scheduled aggregation jobs.

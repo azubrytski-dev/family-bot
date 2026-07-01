@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.core.models import SevereWeatherAlert, WeatherForecast, WeatherObservation, WeatherTimeSlot
@@ -39,14 +41,18 @@ _WEATHER_CODE_DESCRIPTIONS = {
 
 class OpenMeteoWeatherClient:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
-        self._client = client or httpx.AsyncClient(timeout=20.0)
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=25.0, write=10.0, pool=10.0)
+        )
         self._owns_client = client is None
+        self._logger = logging.getLogger(__name__)
 
     async def fetch_current_weather(self, city_name: str) -> WeatherObservation:
         forecast = await self.fetch_city_forecast(city_name)
         return forecast.current
 
     async def fetch_city_forecast(self, city_name: str) -> WeatherForecast:
+        self._logger.info("Calling Open-Meteo geocoding city=%s.", city_name)
         geocode_response = await self._client.get(
             "https://geocoding-api.open-meteo.com/v1/search",
             params={"name": city_name, "count": 1, "language": "ru", "format": "json"},
@@ -61,6 +67,7 @@ class OpenMeteoWeatherClient:
         latitude = float(location["latitude"])
         longitude = float(location["longitude"])
 
+        self._logger.info("Calling Open-Meteo forecast city=%s.", city_name)
         weather_response = await self._client.get(
             "https://api.open-meteo.com/v1/forecast",
             params={

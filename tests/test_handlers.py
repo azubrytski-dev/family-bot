@@ -4,17 +4,23 @@ import logging
 from types import SimpleNamespace
 from typing import cast
 
+import httpx
 import pytest
 from aiogram.types import Message
 
 from app.bot.handlers import (
+    AI_REPLY_FALLBACK,
+    WEATHER_TEST_FALLBACK,
+    _build_reply_context,
     _build_ai_context,
+    _generate_ai_reply,
     _handle_test_command,
     _is_active_bot_status,
     _is_ai_trigger,
     _test_command_action,
 )
 from app.core.config import AppConfig
+from app.core.services.session_memory_service import BOT_SESSION_USER_ID
 
 
 class DummyWeatherService:
@@ -42,11 +48,82 @@ class DummyMessage:
 
     async def answer(self, text: str) -> None:
         self.answers.append(text)
+        return SimpleNamespace(message_id=900 + len(self.answers), date=SimpleNamespace())
+
+
+class DummySessionMemoryService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.recorded_messages: list[dict[str, object]] = []
+        self.reply_context_calls: list[dict[str, object]] = []
+        self.reply_context_result = "session-based-context"
+
+    async def record_message(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.recorded_messages.append(kwargs)
+
+    async def build_reply_context(self, **kwargs) -> str:  # type: ignore[no-untyped-def]
+        self.reply_context_calls.append(kwargs)
+        return self.reply_context_result
+
+    async def record_bot_reply(
+        self,
+        *,
+        chat_id: int,
+        telegram_message_id: int,
+        message_text: str,
+        message_ts_utc,
+        bot_username: str | None,
+    ) -> None:
+        self.calls.append(
+            {
+                "chat_id": chat_id,
+                "telegram_message_id": telegram_message_id,
+                "message_text": message_text,
+                "message_ts_utc": message_ts_utc,
+                "bot_username": bot_username,
+                "user_id": BOT_SESSION_USER_ID,
+            }
+        )
 
 
 class DummyActivityService:
     async def record_message(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         return None
+
+
+class DummyAiService:
+    def __init__(self, reply: str = "Доброе утро!") -> None:
+        self.reply = reply
+        self.reply_calls: list[str] = []
+
+    async def generate_morning_greeting(self, *, summary_date, summaries):  # type: ignore[no-untyped-def]
+        return "Доброе утро!"
+
+    async def reply_to_mention(self, context: str) -> str:
+        self.reply_calls.append(context)
+        return self.reply
+
+
+class FailingAiService(DummyAiService):
+    async def reply_to_mention(self, context: str) -> str:
+        raise RuntimeError("ai failed")
+
+
+class FailingWeatherService(DummyWeatherService):
+    async def build_morning_forecast_summary(self) -> str:
+        raise RuntimeError("weather failed")
+
+
+class FlakyWeatherService(DummyWeatherService):
+    def __init__(self) -> None:
+        super().__init__(summary="В Минске прохладно.")
+        self.attempts = 0
+
+    async def build_morning_forecast_summary(self) -> str:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise httpx.ConnectTimeout("connect timeout")
+        return await super().build_morning_forecast_summary()
 
 
 class DummyBot:
@@ -120,6 +197,85 @@ def test_build_ai_context_includes_bot_message_and_user_reply():
     assert "user_reply: А завтра?" in context
 
 
+@pytest.mark.asyncio
+async def test_build_reply_context_uses_session_memory_when_available():
+    session_memory_service = DummySessionMemoryService()
+    message = cast(
+        Message,
+        SimpleNamespace(
+            chat=SimpleNamespace(id=123),
+            text="А что потом?",
+            caption=None,
+            date=SimpleNamespace(),
+            reply_to_message=SimpleNamespace(text="Сейчас прохладно.", caption=None),
+            from_user=SimpleNamespace(full_name="Andrei", username="andrei"),
+        ),
+    )
+
+    context = await _build_reply_context(
+        message,
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+    )
+
+    assert context == "session-based-context"
+    assert session_memory_service.reply_context_calls == [
+        {
+            "chat_id": 123,
+            "author_user_id": None,
+            "author_name": "Andrei",
+            "message_text": "А что потом?",
+            "reply_to_message_text": "Сейчас прохладно.",
+            "as_of_utc": session_memory_service.reply_context_calls[0]["as_of_utc"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_reply_context_falls_back_without_session_memory():
+    message = cast(
+        Message,
+        SimpleNamespace(
+            chat=SimpleNamespace(id=123),
+            text="А что потом?",
+            caption=None,
+            reply_to_message=SimpleNamespace(text="Сейчас прохладно.", caption=None),
+            from_user=SimpleNamespace(full_name="Andrei", username="andrei"),
+        ),
+    )
+
+    context = await _build_reply_context(message, session_memory_service=None)
+
+    assert "bot_message: Сейчас прохладно." in context
+    assert "user_reply: А что потом?" in context
+
+
+def test_bot_reply_can_be_captured_with_default_bot_user_id():
+    session_memory_service = DummySessionMemoryService()
+
+    import asyncio
+
+    asyncio.run(
+        session_memory_service.record_bot_reply(
+            chat_id=123,
+            telegram_message_id=55,
+            message_text="Привет!",
+            message_ts_utc=SimpleNamespace(),
+            bot_username="family_bot",
+        )
+    )
+
+    assert session_memory_service.calls == [
+        {
+            "chat_id": 123,
+            "telegram_message_id": 55,
+            "message_text": "Привет!",
+            "message_ts_utc": session_memory_service.calls[0]["message_ts_utc"],
+            "bot_username": "family_bot",
+            "user_id": 0,
+        }
+    ]
+
+
 def test_is_active_bot_status_matches_member_like_statuses():
     assert _is_active_bot_status("member") is True
     assert _is_active_bot_status("administrator") is True
@@ -143,6 +299,7 @@ def test_test_command_action_ignores_empty_text():
 async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.MonkeyPatch):
     message = DummyMessage()
     weather_service = DummyWeatherService("В Минске прохладно.")
+    session_memory_service = DummySessionMemoryService()
 
     handled = await _handle_test_command(
         action="weather_test",
@@ -150,14 +307,20 @@ async def test_handle_test_command_returns_weather_summary(monkeypatch: pytest.M
         bot=DummyBot(),
         config=_make_config(monkeypatch),
         activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+        bot_username="family_bot",
         logger=logging.getLogger("test"),
     )
 
     assert handled is True
     assert weather_service.calls == 1
     assert message.answers == ["В Минске прохладно."]
+    assert session_memory_service.recorded_messages == []
+    assert session_memory_service.calls[0]["message_text"] == "В Минске прохладно."
+    assert session_memory_service.calls[0]["bot_username"] == "family_bot"
 
 
 @pytest.mark.asyncio
@@ -171,11 +334,74 @@ async def test_handle_test_command_rejects_when_test_commands_disabled(monkeypat
         bot=DummyBot(),
         config=_make_config(monkeypatch),
         activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
         weather_service=weather_service,  # type: ignore[arg-type]
         chat_registry=DummyChatRegistry(allow_test=False),  # type: ignore[arg-type]
+        session_memory_service=None,
+        bot_username="family_bot",
         logger=logging.getLogger("test"),
     )
 
     assert handled is True
     assert weather_service.calls == 0
     assert message.answers == ["Тестовые команды для этого чата отключены."]
+
+
+@pytest.mark.asyncio
+async def test_handle_test_command_falls_back_when_weather_generation_fails(monkeypatch: pytest.MonkeyPatch):
+    message = DummyMessage()
+    session_memory_service = DummySessionMemoryService()
+
+    handled = await _handle_test_command(
+        action="weather_test",
+        message=message,  # type: ignore[arg-type]
+        bot=DummyBot(),
+        config=_make_config(monkeypatch),
+        activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
+        weather_service=FailingWeatherService(),  # type: ignore[arg-type]
+        chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=session_memory_service,  # type: ignore[arg-type]
+        bot_username="family_bot",
+        logger=logging.getLogger("test"),
+    )
+
+    assert handled is True
+    assert message.answers == [WEATHER_TEST_FALLBACK]
+    assert session_memory_service.calls[0]["message_text"] == WEATHER_TEST_FALLBACK
+
+
+@pytest.mark.asyncio
+async def test_handle_test_command_retries_once_for_interactive_connect_timeout(monkeypatch: pytest.MonkeyPatch):
+    message = DummyMessage()
+    weather_service = FlakyWeatherService()
+
+    handled = await _handle_test_command(
+        action="weather_test",
+        message=message,  # type: ignore[arg-type]
+        bot=DummyBot(),
+        config=_make_config(monkeypatch),
+        activity_service=DummyActivityService(),  # type: ignore[arg-type]
+        ai_service=DummyAiService(),  # type: ignore[arg-type]
+        weather_service=weather_service,  # type: ignore[arg-type]
+        chat_registry=DummyChatRegistry(allow_test=True),  # type: ignore[arg-type]
+        session_memory_service=None,
+        bot_username="family_bot",
+        logger=logging.getLogger("test"),
+    )
+
+    assert handled is True
+    assert weather_service.attempts == 2
+    assert message.answers == ["В Минске прохладно."]
+
+
+@pytest.mark.asyncio
+async def test_generate_ai_reply_falls_back_when_ai_call_fails():
+    reply = await _generate_ai_reply(
+        ai_service=FailingAiService(),  # type: ignore[arg-type]
+        context="session-based-context",
+        chat_id=123,
+        logger=logging.getLogger("test"),
+    )
+
+    assert reply == AI_REPLY_FALLBACK
