@@ -51,6 +51,9 @@ async def test_reply_to_mention_mentions_reply_context_format():
     assert "Не начинай каждый ответ заново с приветствия" in client.last_system_prompt
     assert "Если есть признаки продолжающегося разговора" in client.last_system_prompt
     assert "Приветствие допустимо только если это действительно похоже на самое первое сообщение" in client.last_system_prompt
+    assert "Не заканчивай каждый ответ встречным вопросом" in client.last_system_prompt
+    assert "Не спрашивай повторно `чем занимаешься`" in client.last_system_prompt
+    assert "По умолчанию лучше закончить ответ утверждением" in client.last_system_prompt
     assert "Последние сообщения автора" in client.last_system_prompt
     assert "главный источник недавнего личного контекста" in client.last_system_prompt
     assert "Последняя погодная сводка бота" in client.last_system_prompt
