@@ -62,7 +62,7 @@ Key variables:
 
 - `BOT_TOKEN` — Telegram bot token.
 - `OPENAI_API_KEY` — OpenAI API key.
-- `OPENAI_MODEL` — OpenAI model name, default `gpt-4.1-nano`.
+- `OPENAI_MODEL` — required OpenAI model name; no default. Choose a model compatible with the client's Chat Completions request parameters.
 - `POSTGRES_URL` — connection string to PostgreSQL.
 - `TZ_NAME` — timezone, default `Europe/Minsk`.
 

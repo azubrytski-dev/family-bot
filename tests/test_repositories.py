@@ -52,6 +52,7 @@ async def _run_test_migrations(postgres_url: str) -> None:
         {
             "BOT_TOKEN": "dummy",
             "OPENAI_API_KEY": "test-key",
+            "OPENAI_MODEL": "test-model",
             "POSTGRES_URL": postgres_url,
         }
     )

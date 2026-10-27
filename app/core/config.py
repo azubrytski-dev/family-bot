@@ -13,7 +13,7 @@ class AppConfig(BaseSettings):
     enable_activity_tracking: bool = Field(default=True, alias="ENABLE_ACTIVITY_TRACKING")
 
     openai_api_key: str = Field(alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4.1-nano", alias="OPENAI_MODEL")
+    openai_model: str = Field(alias="OPENAI_MODEL", min_length=1, pattern=r"\S")
 
     postgres_url: str = Field(alias="POSTGRES_URL")
 
