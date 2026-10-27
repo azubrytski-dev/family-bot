@@ -38,11 +38,16 @@ class OpenAIClient:
                     "content": user_prompt,
                 },
             ],
-            "max_tokens": 450,
+            "max_completion_tokens": 450,
             "temperature": 0.7,
         }
+        # Luna defaults to reasoning, which does not accept temperature.
+        if self._model == "gpt-6-luna" or self._model.startswith("gpt-6-luna-"):
+            payload["reasoning_effort"] = "none"
         self._logger.info("Calling OpenAI chat completions model=%s.", self._model)
         response = await self._client.post(url, headers=headers, json=payload)
+        if response.is_error:
+            self._log_api_error(response)
         response.raise_for_status()
         data = response.json()
         try:
@@ -50,6 +55,25 @@ class OpenAIClient:
             return text.strip()
         except (KeyError, IndexError):
             raise ValueError("Invalid response from OpenAI API")
+
+    def _log_api_error(self, response: httpx.Response) -> None:
+        error = {}
+        try:
+            data = response.json()
+            if isinstance(data, dict) and isinstance(data.get("error"), dict):
+                error = data["error"]
+        except ValueError:
+            pass
+        # Avoid logging response messages or bodies, which can echo sensitive input.
+        self._logger.error(
+            "OpenAI request failed model=%s status=%s type=%s code=%s param=%s request_id=%s.",
+            self._model,
+            response.status_code,
+            error.get("type"),
+            error.get("code"),
+            error.get("param"),
+            response.headers.get("x-request-id"),
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
