@@ -231,6 +231,7 @@ def _make_config(monkeypatch: pytest.MonkeyPatch) -> AppConfig:
     monkeypatch.setenv("BOT_TOKEN", "dummy")
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
     return AppConfig(_env_file=None)  # type: ignore[call-arg]
 
 

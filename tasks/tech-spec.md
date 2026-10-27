@@ -358,11 +358,11 @@ Required:
 
 - `BOT_TOKEN`
 - `OPENAI_API_KEY`
+- `OPENAI_MODEL` — non-blank OpenAI model name; no code default
 - `POSTGRES_URL`
 
 Optional:
 
-- `OPENAI_MODEL` default `gpt-4.1-nano`
 - `TZ_NAME` default `Europe/Minsk`
 - `ENABLE_SCHEDULER`
 - `ENABLE_ACTIVITY_TRACKING`
